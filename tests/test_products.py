@@ -62,6 +62,17 @@ def test_apk_product_catalog_defines_native_effect_counts():
     assert product_from_id(564).native_effect_count == 11
 
 
+def test_catalog_matches_apk_classic_manual_preset_boundary():
+    current_controller_ids = {385, 386, 532, 545, 546, 547, 548, 563, 564}
+
+    assert {product_id for product_id, product in PRODUCTS.items() if product.manual_preset_count == 4} == set(
+        PRODUCTS
+    ) - current_controller_ids
+    assert {
+        product_id for product_id, product in PRODUCTS.items() if product.manual_preset_count == 0
+    } == current_controller_ids
+
+
 def test_catalog_routes_each_apk_spectrum_generation():
     assert product_from_id(281).spectrum_profile == "reef_current"
     assert product_from_id(328).spectrum_profile == "aquasky_legacy"

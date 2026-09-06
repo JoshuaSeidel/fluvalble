@@ -19,6 +19,7 @@ from custom_components.fluvalble import (
 def test_native_colour_light_and_exact_channel_controls_are_both_loaded():
     assert Platform.LIGHT in PLATFORMS
     assert Platform.NUMBER in PLATFORMS
+    assert Platform.SCENE in PLATFORMS
     assert Platform.SWITCH in PLATFORMS
 
 

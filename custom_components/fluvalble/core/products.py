@@ -21,6 +21,7 @@ class FluvalProduct:
     spectrum_profile: str
     channel_count: int
     native_effect_count: int
+    manual_preset_count: int
 
 
 def _products(
@@ -29,6 +30,7 @@ def _products(
     spectrum_profile: str,
     channel_count: int,
     native_effect_count: int,
+    manual_preset_count: int,
 ) -> dict[int, FluvalProduct]:
     return {
         product_id: FluvalProduct(
@@ -37,6 +39,7 @@ def _products(
             spectrum_profile,
             channel_count,
             native_effect_count,
+            manual_preset_count,
         )
         for product_id, model in ids.items()
     }
@@ -44,6 +47,8 @@ def _products(
 
 # DeviceUtil's exact device-name table, extended with the current add-device
 # catalogue where that newer UI supersedes an older reused product name.
+# LightDeviceUtils.isOldLight() excludes only products 385, 386, 532, 545-548,
+# 563, and 564. ManFragment exposes all four P1-P4 slots only for that OLD path.
 PRODUCTS: dict[int, FluvalProduct] = {
     **_products(
         {
@@ -55,6 +60,7 @@ PRODUCTS: dict[int, FluvalProduct] = {
         "reef_current",
         5,
         0,
+        4,
     ),
     **_products(
         {
@@ -72,6 +78,7 @@ PRODUCTS: dict[int, FluvalProduct] = {
         "reef_legacy",
         5,
         0,
+        4,
     ),
     **_products(
         {
@@ -83,6 +90,7 @@ PRODUCTS: dict[int, FluvalProduct] = {
         "reef_current",
         5,
         4,
+        0,
     ),
     **_products(
         {
@@ -109,6 +117,7 @@ PRODUCTS: dict[int, FluvalProduct] = {
         "plant_legacy",
         5,
         0,
+        4,
     ),
     **_products(
         {
@@ -124,6 +133,7 @@ PRODUCTS: dict[int, FluvalProduct] = {
         "plant_current",
         5,
         4,
+        0,
     ),
     **_products(
         {
@@ -149,6 +159,7 @@ PRODUCTS: dict[int, FluvalProduct] = {
         "aquasky_legacy",
         4,
         11,
+        4,
     ),
     **_products(
         {
@@ -159,6 +170,7 @@ PRODUCTS: dict[int, FluvalProduct] = {
         "aquasky_current",
         4,
         11,
+        0,
     ),
 }
 

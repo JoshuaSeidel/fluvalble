@@ -14,6 +14,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   off immediately, and any intervening channel, power, or mode action cancels
   the return. The option defaults to off so a stored hardware schedule cannot
   unexpectedly relight the fixture.
+- Exposed classic fixtures' four onboard manual presets as device-linked Home
+  Assistant scenes. Each scene recalls the exact P1-P4 channel values read from
+  the fixture; the existing explicit save action continues to handle overwrites.
 - Restored enabled, device-page controls for every physical light channel while
   retaining the standard Home Assistant light entity. The sliders use the
   FluvalConnect APK's product-specific four- or five-channel names and exact

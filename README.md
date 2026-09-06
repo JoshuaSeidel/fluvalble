@@ -182,6 +182,11 @@ UI contains the available fields, complete examples, and a Fluval light picker.
 Existing automations and bundled cards that identify a light by config-entry ID
 or Bluetooth address remain compatible.
 
+Classic fixtures also expose their four fixture-resident manual presets as
+**Manual preset P1** through **P4** scene entities. Activating a scene recalls
+the exact channel values read from that slot. Saving remains an explicit action
+because it overwrites the selected slot in the physical fixture.
+
 Schedule previews use data already stored by the fixture and never upload
 unsaved editor values. Using the normal light or Mode controls stops an active
 preview automatically; the dedicated Stop preview action restores the prior
@@ -202,6 +207,7 @@ After setup you'll see one device with entities like:
 | **Light** | Light | Power, brightness, colour, and supported native effects. |
 | **Numbers** | Product-specific channel names | Exact 0–100% control of each physical emitter: Red / Green / Blue / White for AquaSky, or the five APK-defined Plant or Marine channels. |
 | **Select** | Mode | Manual / Automatic / Professional. |
+| **Scenes** | Manual preset P1–P4 | Recalls one fixture-resident manual preset on classic controllers. |
 | **Button** | Identify | Runs the fixture's native FluvalConnect Find command so the physical light identifies itself. |
 | **Binary sensor** | Reachable | Fixture seen recently over BLE; raw GATT connection state remains available as an attribute. |
 | **Sensors** | Connection mode / Signal strength / Source / Last seen | Bluetooth diagnostics. Connection mode reports `Persistent` or the configured timeout. Signal strength and Last seen remain registered but are disabled in persistent mode; Source shows the active route's friendly name. |

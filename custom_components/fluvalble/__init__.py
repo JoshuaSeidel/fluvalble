@@ -476,6 +476,7 @@ PLATFORMS: list[Platform] = [
     Platform.BUTTON,
     Platform.NUMBER,
     Platform.SELECT,
+    Platform.SCENE,
     Platform.SENSOR,
     Platform.SWITCH,
     Platform.LIGHT,
@@ -560,6 +561,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FluvalConfigEntry) -> bo
         # device was available (they stashed their add_entities callback).
         from .binary_sensor import create_entities as sensor_entities  # noqa: PLC0415
         from .select import create_entities as select_entities  # noqa: PLC0415
+        from .scene import create_entities as scene_entities  # noqa: PLC0415
         from .light import create_entities as light_entities  # noqa: PLC0415
         from .number import create_entities as number_entities  # noqa: PLC0415
         from .button import create_entities as button_entities  # noqa: PLC0415
@@ -569,6 +571,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FluvalConfigEntry) -> bo
         factories = {
             Platform.BINARY_SENSOR: sensor_entities,
             Platform.SELECT: select_entities,
+            Platform.SCENE: scene_entities,
             Platform.LIGHT: light_entities,
             Platform.NUMBER: number_entities,
             Platform.BUTTON: button_entities,
