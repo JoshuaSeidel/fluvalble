@@ -27,6 +27,12 @@ from the services exposed by the connected fixture. The integration supports
 legacy encrypted controllers, AquaSky 3.0/FACEBD controllers, and FFF0/SPP
 controllers using D1 command and D2 status CBOR frames.
 
+FluvalConnect sends all three controller families through one command queue at
+200 ms intervals. Its current-generation BLE writer splits long frames at the
+negotiated ATT payload size and waits 5 ms between chunks. FFF0/SPP parameter
+dumps may likewise span multiple notifications; the integration reassembles a
+complete D2 CBOR value before updating fixture state or confirming a command.
+
 ## Native schedules and previews
 
 Classic/OLD controllers accept 4–10 Professional schedule points. FACEBD and

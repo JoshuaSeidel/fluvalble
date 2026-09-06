@@ -21,12 +21,15 @@ CONNECT_TIMEOUT = 20
 CONNECT_RETRIES = 3
 WRITE_RETRIES = 2
 WRITE_DELAY = 0.3
-COMMAND_GAP = 0.75
-CLASSIC_COMMAND_GAP = 0.2
+# LightDetailActivity routes OLD, WIFI, and MESH commands through the same
+# AffairManager queue configured with a 200 ms interval.
+COMMAND_GAP = 0.2
 POST_WRITE_STATE_DELAY = 0.8
 STATE_NOTIFY_TIMEOUT = 0.75
 UNVERIFIED_WRITE_COPIES = 2
-CHUNK_WRITE_GAP = 0.01
+# BleKxt configures a 5 ms delay between MTU-sized GATT write packages.
+CHUNK_WRITE_GAP = 0.005
+MAX_RAW_RECEIVE_BUFFER = 4096
 
 # Hardware capture from AquaSky 3.0 establishes this FACEBD split:
 #   facebd01 = raw CBOR command writes
@@ -110,6 +113,7 @@ class Client:
         self.connect_task: asyncio.Task | None = None
 
         self.receive_buffer = b""
+        self.raw_receive_buffer = b""
         self.notify_uuid = None
         self.notify_uuids: list[str] = []
         self.init_write_uuid = None
@@ -335,6 +339,7 @@ class Client:
 
         self.client = None
         self._session_initialized = False
+        self.raw_receive_buffer = b""
         if self.status_callback:
             self.status_callback(False)
 
@@ -395,7 +400,50 @@ class Client:
         """Handle packets sent by the Fluval."""
         if self.raw_facebd:
             _LOGGER.debug("Got raw Fluval data: %s", to_hex(data))
-            self._dispatch_update(bytes(data))
+            payload = bytes(data)
+            if not self.plant_pro_spp:
+                self._dispatch_update(payload)
+                return
+
+            # FFF0/SPP fixtures report D2 + CBOR maps. Full parameter dumps
+            # contain the fixture's Auto, Pro, and timed-effect schedules and
+            # can span more than one GATT notification. FluvalConnect decodes
+            # the complete CBOR value; do the same instead of discarding each
+            # incomplete fragment independently.
+            if self.raw_receive_buffer:
+                # A complete new D2 frame supersedes an abandoned partial
+                # frame. Otherwise append unconditionally: a continuation can
+                # legitimately begin with byte 0xD2 inside a CBOR byte string.
+                if (
+                    payload.startswith(bytes((protocol.SPP_STATUS_HEADER,)))
+                    and protocol.decode_cbor_update(payload) is not None
+                ):
+                    self.raw_receive_buffer = b""
+                    self._dispatch_update(payload)
+                    return
+                self.raw_receive_buffer += payload
+            elif payload.startswith(bytes((protocol.SPP_STATUS_HEADER,))):
+                self.raw_receive_buffer = payload
+            else:
+                # Retain compatibility with a controller that sends a complete
+                # bare CBOR map rather than the documented D2 status frame.
+                self._dispatch_update(payload)
+                return
+
+            if len(self.raw_receive_buffer) > MAX_RAW_RECEIVE_BUFFER:
+                _LOGGER.warning(
+                    "Discarding oversized Fluval SPP status frame (%s bytes)",
+                    len(self.raw_receive_buffer),
+                )
+                self.raw_receive_buffer = b""
+                return
+
+            if protocol.decode_cbor_update(self.raw_receive_buffer) is None:
+                return
+
+            complete = self.raw_receive_buffer
+            self.raw_receive_buffer = b""
+            self._dispatch_update(complete)
             return
 
         decrypted = decrypt(data)
@@ -635,8 +683,6 @@ class Client:
 
     def _command_gap(self) -> float:
         """Return the inter-command delay for the resolved GATT transport."""
-        if self.profile == "legacy_encrypted":
-            return CLASSIC_COMMAND_GAP
         return COMMAND_GAP
 
     async def _wait_for_command_gap(self) -> None:
@@ -738,6 +784,7 @@ class Client:
         client = self.client
         self.client = None
         self._session_initialized = False
+        self.raw_receive_buffer = b""
         if client:
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(client.disconnect(), timeout=5)

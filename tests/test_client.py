@@ -166,13 +166,88 @@ def test_plant_pro_notify_callback_forwards_d2_status_frame():
     assert client.last_confirmed_state == {protocol.SPP_SWITCH_KEY: True}
 
 
+def test_plant_pro_notify_callback_reassembles_fragmented_status_dump():
+    client = _make_client()
+    client.raw_facebd = True
+    client.plant_pro_spp = True
+    update_callback = MagicMock(return_value=True)
+    client.update_callback = update_callback
+    status = bytes((protocol.SPP_STATUS_HEADER,)) + protocol.cbor_map(
+        {
+            protocol.SPP_SWITCH_KEY: True,
+            protocol.SPP_PRO_SCHEDULE_KEY: bytes(range(57)),
+        }
+    )
+
+    for chunk in (status[:20], status[20:40], status[40:]):
+        client.notify_callback(MagicMock(), bytearray(chunk))
+
+    update_callback.assert_called_once_with(status)
+    assert client.raw_receive_buffer == b""
+    assert client.last_confirmed_state == {
+        protocol.SPP_SWITCH_KEY: True,
+        protocol.SPP_PRO_SCHEDULE_KEY: bytes(range(57)),
+    }
+
+
+def test_plant_pro_new_status_header_replaces_incomplete_frame():
+    client = _make_client()
+    client.raw_facebd = True
+    client.plant_pro_spp = True
+    update_callback = MagicMock(return_value=True)
+    client.update_callback = update_callback
+
+    client.notify_callback(MagicMock(), bytearray.fromhex("d2 a2 02 f5 0d 58 39"))
+    replacement = bytes.fromhex("d2 a1 02 f4")
+    client.notify_callback(MagicMock(), bytearray(replacement))
+
+    update_callback.assert_called_once_with(replacement)
+    assert client.raw_receive_buffer == b""
+    assert client.last_confirmed_state == {protocol.SPP_SWITCH_KEY: False}
+
+
+def test_plant_pro_fragment_may_begin_with_d2_data_byte():
+    client = _make_client()
+    client.raw_facebd = True
+    client.plant_pro_spp = True
+    update_callback = MagicMock(return_value=True)
+    client.update_callback = update_callback
+    status = bytes((protocol.SPP_STATUS_HEADER,)) + protocol.cbor_map(
+        {protocol.SPP_PRO_SCHEDULE_KEY: bytes((0xD2, *range(30)))}
+    )
+    continuation = status.index(bytes((0xD2,)), 1)
+
+    client.notify_callback(MagicMock(), bytearray(status[:continuation]))
+    client.notify_callback(MagicMock(), bytearray(status[continuation:]))
+
+    update_callback.assert_called_once_with(status)
+    assert client.raw_receive_buffer == b""
+
+
+def test_plant_pro_oversized_incomplete_status_is_discarded():
+    client = _make_client()
+    client.raw_facebd = True
+    client.plant_pro_spp = True
+    update_callback = MagicMock()
+    client.update_callback = update_callback
+
+    client.notify_callback(MagicMock(), bytearray.fromhex("d2 bf"))
+    client.notify_callback(
+        MagicMock(),
+        bytearray(client_module.MAX_RAW_RECEIVE_BUFFER),
+    )
+
+    update_callback.assert_not_called()
+    assert client.raw_receive_buffer == b""
+
+
 def test_send_now_paces_commands_for_resolved_transport():
     asyncio.run(_async_test_send_now_paces_commands_for_resolved_transport())
 
 
 async def _async_test_send_now_paces_commands_for_resolved_transport():
     cases = (
-        (_classic_characteristics(), client_module.CLASSIC_COMMAND_GAP),
+        (_classic_characteristics(), client_module.COMMAND_GAP),
         (_facebd_characteristics(), client_module.COMMAND_GAP),
         (_plant_pro_characteristics(), client_module.COMMAND_GAP),
     )
@@ -303,6 +378,10 @@ async def _async_test_facebd_write_packet_chunks_native_schedule_at_att_limit():
         packet[:20],
         packet[20:40],
         packet[40:],
+    ]
+    assert [call.args[0] for call in sleep.await_args_list] == [
+        client_module.CHUNK_WRITE_GAP,
+        client_module.CHUNK_WRITE_GAP,
     ]
     assert all(call.kwargs["response"] is False for call in mock_client.write_gatt_char.await_args_list)
     assert sleep.await_count == 2
