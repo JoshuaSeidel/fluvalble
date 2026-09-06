@@ -167,6 +167,10 @@ def detect_model(name: str | None, advertisement: AdvertisementData | None) -> s
         return "Marine Bluetooth LED"
 
     if "reef" in lowered and name_looks_fluval(display_name):
+        if "nano" in lowered:
+            return "Fluval Reef Nano 4.0 LED"
+        if "4.0" in lowered or "4_" in lowered:
+            return "Fluval Reef 4.0 LED"
         return "Reef Bluetooth LED"
 
     if "aquasky" in lowered:

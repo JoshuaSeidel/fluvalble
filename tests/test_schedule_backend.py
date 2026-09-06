@@ -990,6 +990,25 @@ def test_fixture_schedule_readback_normalizes_protocol_shapes():
     assert readback["effect_readback_complete"] is True
 
 
+def test_current_reef_spp_effect_readback_is_complete():
+    device = _make_device(product_id=546)
+    device.values["native_effect_schedule"] = [
+        {
+            "start": "12:00",
+            "end": "12:10",
+            "effect": "Lightning",
+            "weekdays": [True, False, False, False, False, False, False],
+            "enabled": True,
+        }
+    ]
+    device.diagnostics["native_schedule_protocol"] = "spp"
+
+    readback = _native_schedule_readback(device)
+
+    assert readback["protocol"] == "spp"
+    assert readback["effect_readback_complete"] is True
+
+
 def test_schedule_payload_refreshes_fixture_only_when_requested(monkeypatch):
     asyncio.run(_async_test_schedule_payload_refreshes_fixture_only_when_requested(monkeypatch))
 
