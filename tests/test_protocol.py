@@ -576,6 +576,46 @@ def test_plant_pro_effect_packet_matches_apk_cbor_command():
     assert protocol.spp_effect_packet(3) == bytes.fromhex("d1 a1 0e 03")
 
 
+def test_current_rgbw_effect_packet_accepts_apk_eleven_effect_catalogue():
+    assert protocol.spp_effect_packet(11, maximum_effect_id=11) == bytes.fromhex("d1 a1 0e 0b")
+
+
+def test_current_rgbw_four_channel_schedules_round_trip():
+    auto_packet = protocol.spp_auto_schedule_packet(
+        sunrise=(8, 0, 60),
+        sunset=(20, 30, 45),
+        sleep=(23, 15),
+        day_levels=[80, 70, 60, 50],
+        night_levels=[0, 5, 0, 0],
+        channel_count=4,
+    )
+    auto = protocol.decode_cbor_update(auto_packet)
+
+    assert protocol.decode_spp_auto_schedule(auto, channel_count=4) == {
+        "sunrise": "08:00",
+        "sunrise_ramp": 60,
+        "sunset": "20:30",
+        "sunset_ramp": 45,
+        "sleep": "23:15",
+        "day_levels": [80, 70, 60, 50],
+        "night_levels": [0, 5, 0, 0],
+    }
+
+    points = [
+        {"hour": 8, "minute": 0, "levels": [0, 0, 0, 0]},
+        {"hour": 10, "minute": 0, "levels": [20, 20, 20, 20]},
+        {"hour": 12, "minute": 30, "levels": [80, 70, 60, 50]},
+        {"hour": 20, "minute": 0, "levels": [0, 0, 0, 0]},
+    ]
+    pro = protocol.decode_cbor_update(protocol.spp_pro_schedule_packet(points, channel_count=4))
+    assert protocol.decode_spp_pro_schedule(pro, channel_count=4) == [
+        {"time": "08:00", "levels": [0, 0, 0, 0]},
+        {"time": "10:00", "levels": [20, 20, 20, 20]},
+        {"time": "12:30", "levels": [80, 70, 60, 50]},
+        {"time": "20:00", "levels": [0, 0, 0, 0]},
+    ]
+
+
 def test_plant_pro_auto_schedule_round_trip():
     packet = protocol.spp_auto_schedule_packet(
         sunrise=(8, 0, 60),

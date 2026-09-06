@@ -1006,6 +1006,70 @@ async def _async_test_current_reef_commands_use_shared_spp_transport(product_id)
     device._async_send_packet.assert_awaited_once_with(protocol.spp_single_zone_packet(4, 75))
 
 
+def test_roma_shaker_uses_apk_current_rgbw_commands_and_schedules():
+    asyncio.run(_async_test_roma_shaker_uses_apk_current_rgbw_commands_and_schedules())
+
+
+async def _async_test_roma_shaker_uses_apk_current_rgbw_commands_and_schedules():
+    device = _make_device(product_id=564)
+    device.client = SimpleNamespace(
+        spp_transport=True,
+        plant_pro_spp=False,
+        command_write_uuid="0000fff2-0000-1000-8000-00805f9b34fb",
+        wifi_facebd=False,
+    )
+    device.values.update({"mode": "manual", "led_on_off": True})
+    device._async_prepare_command = AsyncMock(return_value=True)
+    device._async_send_packet = AsyncMock(return_value=True)
+
+    assert device.numbers() == AQUASKY_NUMBERS
+    assert device.effect_list() == ["off", *WEATHER_EFFECTS]
+    assert await device.async_set_effect("Crescent moon")
+    device._async_send_packet.assert_awaited_once_with(protocol.spp_effect_packet(11, maximum_effect_id=11))
+
+    device._async_send_packet.reset_mock()
+    auto = {
+        "sunrise": (8, 0, 60),
+        "sunset": (20, 30, 45),
+        "sleep": (23, 15),
+        "day_levels": [80, 70, 60, 50],
+        "night_levels": [0, 5, 0, 0],
+    }
+    assert await device.async_set_native_auto_schedule(auto, activate=False)
+    device._async_send_packet.assert_awaited_once_with(protocol.spp_auto_schedule_packet(**auto, channel_count=4))
+
+    device._async_send_packet.reset_mock()
+    points = [
+        {"hour": 8, "minute": 0, "levels": [0, 0, 0, 0]},
+        {"hour": 10, "minute": 0, "levels": [20, 20, 20, 20]},
+        {"hour": 12, "minute": 30, "levels": [80, 70, 60, 50]},
+        {"hour": 20, "minute": 0, "levels": [0, 0, 0, 0]},
+    ]
+    assert await device.async_set_native_pro_schedule(points, activate=False)
+    device._async_send_packet.assert_awaited_once_with(protocol.spp_pro_schedule_packet(points, channel_count=4))
+
+    device._async_send_packet.reset_mock()
+    windows = [
+        {
+            "start_hour": 21,
+            "start_minute": 0,
+            "end_hour": 21,
+            "end_minute": 30,
+            "effect": "Crescent moon",
+            "weekdays": [True] * 7,
+            "enabled": True,
+        }
+    ]
+    assert await device.async_set_native_effect_schedule(windows)
+    device._async_send_packet.assert_awaited_once_with(
+        protocol.spp_effect_schedule_packet(
+            [{**windows[0], "effect_id": 11}],
+            maximum_effect_id=11,
+        )
+    )
+    assert device.diagnostics["native_effect_schedule"][0]["effect"] == "Crescent moon"
+
+
 def test_aquasky_uses_one_rgb_mode_with_native_white_translation():
     device = _make_device(
         name="AquaSky2.0_Test",

@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 import asyncio
 import contextlib
 from datetime import UTC, datetime, timedelta
-from functools import wraps
+from functools import partial, wraps
 import logging
 from time import monotonic
 from typing import Any, Concatenate, ParamSpec, TypeVar, TypedDict, cast
@@ -974,8 +974,12 @@ class Device:
                 if facebd
                 else protocol.old_switch_packet(True)
             )
+        product = product_from_id(self.product_id)
         packets.append(
-            protocol.spp_effect_packet(effect_code)
+            protocol.spp_effect_packet(
+                effect_code,
+                maximum_effect_id=product.native_effect_count if product is not None else 4,
+            )
             if spp
             else protocol.wifi_effect_packet(effect_code)
             if facebd
@@ -1024,6 +1028,7 @@ class Device:
                 sleep=schedule.get("sleep"),
                 day_levels=schedule["day_levels"],
                 night_levels=schedule["night_levels"],
+                channel_count=self._resolved_channel_count(),
             )
             native_protocol = "spp"
         else:
@@ -1107,15 +1112,19 @@ class Device:
                 channel_count=self._resolved_channel_count(),
             )
         elif native_protocol == "spp":
+            channel_count = self._resolved_channel_count()
             spp_points = [
                 {
                     "hour": point["minute"] // 60,
                     "minute": point["minute"] % 60,
-                    "levels": [point.get(f"channel_{index}", 0) for index in range(1, 6)],
+                    "levels": [point.get(f"channel_{index}", 0) for index in range(1, channel_count + 1)],
                 }
                 for point in normalized
             ]
-            packet = protocol.spp_pro_schedule_packet(spp_points)
+            packet = protocol.spp_pro_schedule_packet(
+                spp_points,
+                channel_count=channel_count,
+            )
         else:
             packet = protocol.old_pro_schedule_packet(
                 normalized,
@@ -1148,7 +1157,12 @@ class Device:
 
         if self._uses_spp_protocol():
             native_protocol = "spp"
-            packet_builder = protocol.spp_effect_schedule_packet
+            product = product_from_id(self.product_id)
+            maximum_effect_id = product.native_effect_count if product is not None else 4
+            packet_builder = partial(
+                protocol.spp_effect_schedule_packet,
+                maximum_effect_id=maximum_effect_id,
+            )
         elif self._uses_wifi_protocol() and self.supports_facebd_effects():
             native_protocol = "facebd"
             packet_builder = protocol.wifi_effect_schedule_packet
@@ -2695,8 +2709,9 @@ class Device:
             self.values["effect"] = self._native_effect_name(effect_code) if effect_code else None
             updated = True
 
-        auto_schedule = protocol.decode_spp_auto_schedule(data)
-        pro_schedule = protocol.decode_spp_pro_schedule(data)
+        channel_count = self._resolved_channel_count()
+        auto_schedule = protocol.decode_spp_auto_schedule(data, channel_count=channel_count)
+        pro_schedule = protocol.decode_spp_pro_schedule(data, channel_count=channel_count)
         if self._record_native_schedule_readback(
             protocol_name="spp",
             auto=auto_schedule,
@@ -2708,7 +2723,11 @@ class Device:
         if pro_schedule is not None and self.uses_plant_spectrum():
             self.diagnostics["plant_pro_pro_schedule"] = pro_schedule
 
-        effect_schedule = protocol.decode_spp_effect_schedule(data)
+        product = product_from_id(self.product_id)
+        effect_schedule = protocol.decode_spp_effect_schedule(
+            data,
+            maximum_effect_id=product.native_effect_count if product is not None else 4,
+        )
         if self._record_native_effect_schedule_readback(
             protocol_name="spp",
             windows=effect_schedule,
