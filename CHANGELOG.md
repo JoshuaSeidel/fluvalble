@@ -25,6 +25,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Reassemble fragmented FFF0/SPP `D2` status reports before decoding them, so
+  Plant PRO, Plant 4.0, and other current controllers can return complete
+  channel, effect, Auto, Professional, and timed-effect schedule state.
+- Match FluvalConnect's shared 200 ms command queue and 5 ms chunk interval for
+  current-generation BLE controllers instead of imposing a slower 750 ms gap.
 - Keep the Connected since diagnostic enabled for persistent connections while
   disabling only the stale RSSI sensor. Restored channel controls explicitly
   default to enabled.
