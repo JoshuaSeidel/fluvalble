@@ -5,6 +5,8 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
+import pytest
+
 from custom_components.fluvalble.core import (
     LAMP_PROFILE_AQUASKY,
     LAMP_PROFILE_AQUASKY3,
@@ -928,6 +930,82 @@ def test_marine_state_mix_uses_all_five_channels():
     assert (red, green, blue) == (191, 206, 255)
 
 
+@pytest.mark.parametrize("product_id", [546, 547])
+def test_current_reef_effect_stop_defaults_to_apk_cold_white_channel(product_id):
+    device = _make_device(product_id=product_id)
+    device.values.update({channel: 0 for channel in NUMBERS})
+    device._effect_restore_channels = None
+
+    assert device._channels_after_effect() == {
+        "channel_1": 0,
+        "channel_2": 0,
+        "channel_3": 0,
+        "channel_4": 0,
+        "channel_5": 100,
+    }
+
+
+@pytest.mark.parametrize("product_id", [546, 547])
+def test_current_reef_spp_status_uses_product_neutral_diagnostics(product_id):
+    device = _make_device(product_id=product_id)
+    status = bytes((protocol.SPP_STATUS_HEADER,)) + protocol.cbor_map(
+        {
+            protocol.SPP_SWITCH_KEY: True,
+            protocol.SPP_MODE_KEY: 0,
+            protocol.SPP_CHANNEL_KEYS[0]: 10,
+            protocol.SPP_CHANNEL_KEYS[1]: 20,
+            protocol.SPP_CHANNEL_KEYS[2]: 30,
+            protocol.SPP_CHANNEL_KEYS[3]: 40,
+            protocol.SPP_CHANNEL_KEYS[4]: 50,
+            protocol.SPP_EFFECT_KEY: 3,
+            protocol.SPP_AUTO_SUNRISE_KEY: bytes((8, 0, 60)),
+            protocol.SPP_AUTO_SUNSET_KEY: bytes((20, 0, 60)),
+            protocol.SPP_AUTO_SLEEP_KEY: bytes((23, 0)),
+            protocol.SPP_AUTO_DAY_LEVELS_KEY: bytes((10, 20, 30, 40, 50)),
+            protocol.SPP_AUTO_NIGHT_LEVELS_KEY: bytes((0, 0, 5, 0, 0)),
+        }
+    )
+
+    assert device.decode_update_packet(status)
+    assert device.values["effect"] == "Partly cloudy"
+    assert [device.values[channel] for channel in NUMBERS] == [10, 20, 30, 40, 50]
+    assert device.values["native_auto_schedule"]["day_levels"] == [10, 20, 30, 40, 50]
+    assert device.diagnostics["native_schedule_protocol"] == "spp"
+    assert "plant_pro_auto_schedule" not in device.diagnostics
+    assert "plant_pro_pro_schedule" not in device.diagnostics
+    assert "plant_pro_effect_schedule" not in device.diagnostics
+
+
+@pytest.mark.parametrize("product_id", [546, 547])
+def test_current_reef_commands_use_shared_spp_transport(product_id):
+    asyncio.run(_async_test_current_reef_commands_use_shared_spp_transport(product_id))
+
+
+async def _async_test_current_reef_commands_use_shared_spp_transport(product_id):
+    device = _make_device(product_id=product_id)
+    device.client = SimpleNamespace(
+        spp_transport=True,
+        plant_pro_spp=False,
+        command_write_uuid="0000fff2-0000-1000-8000-00805f9b34fb",
+        wifi_facebd=False,
+    )
+    device.values.update({"mode": "automatic", "led_on_off": False})
+    device._async_prepare_command = AsyncMock(return_value=True)
+    device._async_send_packet = AsyncMock(return_value=True)
+
+    assert await device.async_set_effect("Lightning")
+    assert [call.args[0] for call in device._async_send_packet.await_args_list] == [
+        protocol.spp_mode_packet(0),
+        protocol.spp_switch_packet(True),
+        protocol.spp_effect_packet(1),
+    ]
+
+    device._async_send_packet.reset_mock()
+    device.values["effect"] = None
+    assert await device.async_set_channels({"channel_5": 75})
+    device._async_send_packet.assert_awaited_once_with(protocol.spp_single_zone_packet(4, 75))
+
+
 def test_aquasky_uses_one_rgb_mode_with_native_white_translation():
     device = _make_device(
         name="AquaSky2.0_Test",
@@ -1223,7 +1301,7 @@ def test_plant_pro_status_decodes_effect_and_fixture_schedules():
     assert device.values["effect"] == "Crescent moon"
     assert device.values["native_auto_schedule"]["sunrise"] == "08:00"
     assert device.values["native_pro_schedule"][2]["time"] == "12:30"
-    assert device.diagnostics["native_schedule_protocol"] == "plant_pro"
+    assert device.diagnostics["native_schedule_protocol"] == "spp"
     assert device.diagnostics["native_schedule_readback_at"]
     assert device.diagnostics["plant_pro_effect_schedule"][0]["effect"] == "Lightning"
 
@@ -1816,7 +1894,7 @@ async def _async_test_plant_pro_native_schedule_actions_write_fixture_packets():
         protocol.spp_mode_packet(2),
         protocol.spp_effect_schedule_packet(windows),
     ]
-    assert device.diagnostics["native_schedule_protocol"] == "plant_pro"
+    assert device.diagnostics["native_schedule_protocol"] == "spp"
     assert device.diagnostics["native_pro_schedule_points"] == 4
     assert device.diagnostics["plant_pro_effect_schedule"][0]["effect"] == "Lightning"
     assert "native_auto_schedule" not in device.values
@@ -2008,7 +2086,7 @@ def test_native_pro_schedule_limits_follow_detected_apk_transport():
 
     assert classic.native_pro_schedule_limits() == ("classic", 4, 10)
     assert facebd.native_pro_schedule_limits() == ("facebd", 4, 12)
-    assert plant_pro.native_pro_schedule_limits() == ("plant_pro", 4, 12)
+    assert plant_pro.native_pro_schedule_limits() == ("spp", 4, 12)
 
 
 def test_invalid_classic_pro_schedule_is_rejected_after_transport_detection():

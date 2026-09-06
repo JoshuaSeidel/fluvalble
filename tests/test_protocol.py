@@ -509,9 +509,9 @@ def test_native_pro_schedule_builders_enforce_apk_point_limits():
         protocol.wifi_pro_schedule_packet(channel_points[:3])
     with pytest.raises(ValueError, match="FACEBD schedule requires 4-12 points"):
         protocol.wifi_pro_schedule_packet(channel_points)
-    with pytest.raises(ValueError, match="Plant Pro schedule requires 4-12 points"):
+    with pytest.raises(ValueError, match="FFF0/SPP schedule requires 4-12 points"):
         protocol.spp_pro_schedule_packet(spp_points[:3])
-    with pytest.raises(ValueError, match="Plant Pro schedule requires 4-12 points"):
+    with pytest.raises(ValueError, match="FFF0/SPP schedule requires 4-12 points"):
         protocol.spp_pro_schedule_packet(spp_points)
 
 

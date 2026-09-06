@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Completed current-generation Reef controller handling for Fluval Reef 4.0
+  (product 546) and Reef Nano 4.0 (product 547). The integration now recognizes
+  their Reef advertisement names and treats the shared FFF0/SPP transport as a
+  current Plant-and-Reef protocol throughout commands, readback, schedules,
+  diagnostics, and tests.
 - Added an optional per-fixture three-second return to the Auto or Professional
   mode used before exact channel-slider adjustment. Reaching zero still powers
   off immediately, and any intervening channel, power, or mode action cancels
@@ -25,6 +30,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Restore a neutral static output after leaving a Reef native effect by using
+  its APK-defined channel 5 Cold White bank. The former generic fallback used
+  channel 4, which is Purple on Reef fixtures.
 - Reassemble fragmented FFF0/SPP `D2` status reports before decoding them, so
   Plant PRO, Plant 4.0, and other current controllers can return complete
   channel, effect, Auto, Professional, and timed-effect schedule state.

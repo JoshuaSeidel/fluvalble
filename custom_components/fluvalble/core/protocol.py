@@ -282,17 +282,17 @@ def decode_wifi_effect_schedule(data: Mapping[int, Any]) -> list[dict[str, Any]]
 
 
 def spp_switch_packet(is_on: bool) -> bytes:
-    """Build a Plant Pro 4.0 SPP power packet."""
+    """Build a current Plant/Reef FFF0/SPP power packet."""
     return spp_command({SPP_SWITCH_KEY: is_on})
 
 
 def spp_mode_packet(mode: int) -> bytes:
-    """Build a Plant Pro 4.0 SPP mode packet."""
+    """Build a current Plant/Reef FFF0/SPP mode packet."""
     return spp_command({SPP_MODE_KEY: mode})
 
 
 def spp_all_zone_packet(values: Iterable[int]) -> bytes:
-    """Build a Plant Pro 4.0 SPP five-channel packet."""
+    """Build a current Plant/Reef FFF0/SPP five-channel packet."""
     packet = {key: _clamp_percent(value) for key, value in zip(SPP_CHANNEL_KEYS, values, strict=False)}
     packet[SPP_MANUAL_KEY] = 0
     return spp_command(packet)
@@ -301,7 +301,7 @@ def spp_all_zone_packet(values: Iterable[int]) -> bytes:
 def spp_single_zone_packet(channel_index: int, value: int) -> bytes:
     """Build the APK Plant Pro/MESH packet for one manual color channel."""
     if not 0 <= channel_index < len(SPP_CHANNEL_KEYS):
-        raise ValueError("Plant Pro channel index must be between 0 and 4")
+        raise ValueError("FFF0/SPP channel index must be between 0 and 4")
     return spp_command(
         {
             SPP_CHANNEL_KEYS[channel_index]: _clamp_percent(value),
@@ -311,14 +311,14 @@ def spp_single_zone_packet(channel_index: int, value: int) -> bytes:
 
 
 def spp_effect_packet(effect_id: int) -> bytes:
-    """Build a Plant Pro native-effect packet recovered from FluvalConnect."""
+    """Build a current Plant/Reef native-effect packet."""
     if not 0 <= effect_id <= 4:
-        raise ValueError("Plant Pro effect ID must be between 0 and 4")
+        raise ValueError("FFF0/SPP effect ID must be between 0 and 4")
     return spp_command({SPP_EFFECT_KEY: effect_id})
 
 
 def spp_find_packet() -> bytes:
-    """Build the APK-native Plant Pro/mesh identify command."""
+    """Build the APK-native current-controller identify command."""
     return spp_command({FIND_KEY: "find"})
 
 
@@ -330,7 +330,7 @@ def spp_auto_schedule_packet(
     day_levels: Iterable[int],
     night_levels: Iterable[int],
 ) -> bytes:
-    """Build the Plant Pro Auto schedule stored in CBOR keys 8-12."""
+    """Build the current FFF0/SPP Auto schedule stored in keys 8-12."""
     sunrise_data = bytes(_validate_time_with_ramp(sunrise, "sunrise"))
     sunset_data = bytes(_validate_time_with_ramp(sunset, "sunset"))
     sleep_data = bytes((0xFF, 0xFF) if sleep is None else _validate_time(sleep, "sleep"))
@@ -348,13 +348,13 @@ def spp_auto_schedule_packet(
 
 
 def spp_pro_schedule_packet(points: Iterable[dict[str, Any]]) -> bytes:
-    """Build the Plant Pro Pro-mode multi-point schedule in CBOR key 13."""
+    """Build the current FFF0/SPP Pro-mode schedule in CBOR key 13."""
     normalized = list(points)
     _validate_pro_point_count(
         len(normalized),
         minimum=SPP_MIN_PRO_POINTS,
         maximum=SPP_MAX_PRO_POINTS,
-        label="Plant Pro",
+        label="FFF0/SPP",
     )
     blob = bytearray((len(normalized),))
     for point in normalized:
@@ -365,19 +365,19 @@ def spp_pro_schedule_packet(points: Iterable[dict[str, Any]]) -> bytes:
 
 
 def spp_effect_schedule_packet(windows: Iterable[dict[str, Any]]) -> bytes:
-    """Build seven fixed Plant Pro timed-effect slots in CBOR key 15."""
+    """Build seven fixed current-controller effect slots in CBOR key 15."""
     blob = _effect_schedule_blob(
         windows,
         maximum=SPP_MAX_EFFECT_WINDOWS,
         maximum_effect_id=4,
-        label="Plant Pro",
+        label="FFF0/SPP",
         fixed_slots=True,
     )
     return spp_command({SPP_EFFECT_SCHEDULE_KEY: blob})
 
 
 def spp_command(values: Mapping[int, Any]) -> bytes:
-    """Build an unencrypted Plant Pro 4.0 SPP command frame."""
+    """Build an unencrypted current Plant/Reef FFF0/SPP command frame."""
     return bytes((SPP_COMMAND_HEADER,)) + cbor_map(values)
 
 
@@ -698,7 +698,7 @@ def cbor_map(values: Mapping[int, Any]) -> bytes:
 
 
 def decode_spp_auto_schedule(data: dict[int, Any]) -> dict[str, Any] | None:
-    """Decode Plant Pro Auto schedule keys 8-12 from a D2 state map."""
+    """Decode current FFF0/SPP Auto schedule keys 8-12 from D2 state."""
     sunrise = data.get(SPP_AUTO_SUNRISE_KEY)
     sunset = data.get(SPP_AUTO_SUNSET_KEY)
     sleep = data.get(SPP_AUTO_SLEEP_KEY)
@@ -729,7 +729,7 @@ def decode_spp_auto_schedule(data: dict[int, Any]) -> dict[str, Any] | None:
 
 
 def decode_spp_pro_schedule(data: dict[int, Any]) -> list[dict[str, Any]] | None:
-    """Decode the Plant Pro key-13 Pro schedule."""
+    """Decode the current FFF0/SPP key-13 Pro schedule."""
     blob = data.get(SPP_PRO_SCHEDULE_KEY)
     if not isinstance(blob, bytes) or not blob:
         return None
@@ -746,7 +746,7 @@ def decode_spp_pro_schedule(data: dict[int, Any]) -> list[dict[str, Any]] | None
 
 
 def decode_spp_effect_schedule(data: dict[int, Any]) -> list[dict[str, Any]] | None:
-    """Decode the Plant Pro key-15 seven-slot timed-effect schedule."""
+    """Decode the current FFF0/SPP key-15 timed-effect schedule."""
     blob = data.get(SPP_EFFECT_SCHEDULE_KEY)
     if not isinstance(blob, bytes) or len(blob) != SPP_MAX_EFFECT_WINDOWS * 6:
         return None
@@ -834,7 +834,7 @@ def decode_cbor_map(data: bytes) -> dict[Any, Any] | None:
 
 
 def decode_cbor_update(data: bytes) -> dict[Any, Any] | None:
-    """Decode a raw CBOR map or a Plant Pro D1/D2 CBOR frame."""
+    """Decode a raw CBOR map or a current-controller D1/D2 frame."""
     if not data:
         return None
     if data[0] in (SPP_COMMAND_HEADER, SPP_STATUS_HEADER):
@@ -871,7 +871,7 @@ def _time_bytes(hour: int, minute: int) -> bytes:
 def _validate_time(value: tuple[int, int], label: str) -> tuple[int, int]:
     hour, minute = (int(item) for item in value)
     if not 0 <= hour <= 23 or not 0 <= minute <= 59:
-        raise ValueError(f"Plant Pro {label} time is outside the 24-hour range")
+        raise ValueError(f"FFF0/SPP {label} time is outside the 24-hour range")
     return hour, minute
 
 
@@ -879,14 +879,14 @@ def _validate_time_with_ramp(value: tuple[int, int, int], label: str) -> tuple[i
     hour, minute = _validate_time((value[0], value[1]), label)
     ramp = int(value[2])
     if not 0 <= ramp <= 240:
-        raise ValueError(f"Plant Pro {label} ramp must be between 0 and 240 minutes")
+        raise ValueError(f"FFF0/SPP {label} ramp must be between 0 and 240 minutes")
     return hour, minute, ramp
 
 
 def _validate_levels(values: Iterable[int], label: str) -> list[int]:
     levels = [int(value) for value in values]
     if len(levels) != 5 or any(not 0 <= value <= 100 for value in levels):
-        raise ValueError(f"Plant Pro {label} must contain five values from 0 to 100")
+        raise ValueError(f"FFF0/SPP {label} must contain five values from 0 to 100")
     return levels
 
 

@@ -1238,7 +1238,7 @@ def _native_schedule_readback(device: Device | None) -> dict[str, Any]:
         "effects": effects,
         "channels": [device.entity_name(channel) for channel in device.numbers()],
         "effect_options": [effect for effect in device.effect_list() if effect != EFFECT_NONE],
-        "effect_readback_complete": protocol_name in {"facebd", "plant_pro"},
+        "effect_readback_complete": protocol_name in {"facebd", "plant_pro", "spp"},
         "spectrum_profile": device.spectrum_profile(),
         "protocol": protocol_name,
         "read_at": device.diagnostics.get("native_schedule_readback_at"),

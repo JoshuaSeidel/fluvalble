@@ -579,8 +579,10 @@ class Device:
         ]
         self.values["native_effect_schedule"] = normalized
         self.diagnostics["native_effect_schedule"] = normalized
-        if protocol_name == "plant_pro":
-            # Backward-compatible diagnostics key from the original Plant Pro service.
+        if protocol_name == "spp" and self.uses_plant_spectrum():
+            # Backward-compatible diagnostics key from the original
+            # Plant-PRO-only implementation. Reef fixtures use only the
+            # protocol-neutral key above.
             self.diagnostics["plant_pro_effect_schedule"] = normalized
         self.diagnostics.update(
             {
@@ -609,10 +611,10 @@ class Device:
             return 5
         if self._channel_count_hint in (4, 5):
             return self._channel_count_hint
-        if self._uses_plant_pro_protocol():
-            # FluvalConnect's FFF0/SPP command schema always carries the five
-            # Plant-family emitters. This is live protocol evidence, not a
-            # product inference from the advertised name.
+        if self._uses_spp_protocol():
+            # FluvalConnect's current FFF0/SPP command schema always carries
+            # five emitters for both Plant and Reef products. This is live
+            # protocol evidence, not a product inference from the name.
             return 5
         # Keep the historical five-channel superset until an APK product ID,
         # explicit profile, or decoded controller response resolves the real
@@ -905,7 +907,20 @@ class Device:
         if any(targets.values()):
             return dict(targets)
         targets = {channel: 0 for channel in self.numbers()}
-        targets["channel_4"] = 100
+        # FluvalConnect's APK channel tables put the neutral White bank at
+        # channel 4 on Plant/AquaSky fixtures but Cold White at channel 5 on
+        # Reef fixtures. Never fall back to Reef channel 4, which is Purple.
+        labels = self._channel_labels()
+        fallback = next(
+            (
+                channel
+                for wanted in ("White", "Cold White", "Warm White")
+                for channel in self.numbers()
+                if labels.get(channel) == wanted
+            ),
+            "channel_4",
+        )
+        targets[fallback] = 100
         return targets
 
     def _clear_effect_state(self) -> None:
@@ -920,7 +935,7 @@ class Device:
             _LOGGER.warning("Cannot set Fluval effect before BLE device is available")
             return False
 
-        plant_pro = self._uses_plant_pro_protocol()
+        spp = self._uses_spp_protocol()
         facebd = self._uses_wifi_protocol()
         effect_code = self._native_effect_id(effect)
         if effect_code is None:
@@ -928,7 +943,7 @@ class Device:
         if facebd and not self.supports_facebd_effects():
             _LOGGER.warning("FACEBD weather effects require an AquaSky controller identity")
             return False
-        if not plant_pro and not facebd and not self.supports_classic_effects():
+        if not spp and not facebd and not self.supports_classic_effects():
             _LOGGER.warning(
                 "Classic weather effects are not valid for Fluval transport %s",
                 self.client.command_write_uuid if self.client else None,
@@ -946,7 +961,7 @@ class Device:
         if self.values.get("mode") != "manual":
             packets.append(
                 protocol.spp_mode_packet(MODE_TO_CODE["manual"])
-                if plant_pro
+                if spp
                 else protocol.wifi_mode_packet(MODE_TO_CODE["manual"])
                 if facebd
                 else protocol.old_mode_packet(MODE_TO_CODE["manual"])
@@ -954,14 +969,14 @@ class Device:
         if not self.values.get("led_on_off"):
             packets.append(
                 protocol.spp_switch_packet(True)
-                if plant_pro
+                if spp
                 else protocol.wifi_switch_packet(True)
                 if facebd
                 else protocol.old_switch_packet(True)
             )
         packets.append(
             protocol.spp_effect_packet(effect_code)
-            if plant_pro
+            if spp
             else protocol.wifi_effect_packet(effect_code)
             if facebd
             else protocol.old_weather_effect_packet(effect_code)
@@ -1002,7 +1017,7 @@ class Device:
                 channel_count=self._resolved_channel_count(),
             )
             native_protocol = "facebd"
-        elif self._uses_plant_pro_protocol():
+        elif self._uses_spp_protocol():
             packet = protocol.spp_auto_schedule_packet(
                 sunrise=schedule["sunrise"],
                 sunset=schedule["sunset"],
@@ -1010,7 +1025,7 @@ class Device:
                 day_levels=schedule["day_levels"],
                 night_levels=schedule["night_levels"],
             )
-            native_protocol = "plant_pro"
+            native_protocol = "spp"
         else:
             packet = protocol.old_auto_schedule_packet(
                 sunrise=schedule["sunrise"],
@@ -1045,8 +1060,8 @@ class Device:
         """Return the APK-defined Professional-schedule limits for this fixture."""
         if self._uses_wifi_protocol():
             return "facebd", protocol.WIFI_MIN_PRO_POINTS, protocol.WIFI_MAX_PRO_POINTS
-        if self._uses_plant_pro_protocol():
-            return "plant_pro", protocol.SPP_MIN_PRO_POINTS, protocol.SPP_MAX_PRO_POINTS
+        if self._uses_spp_protocol():
+            return "spp", protocol.SPP_MIN_PRO_POINTS, protocol.SPP_MAX_PRO_POINTS
         return "classic", protocol.OLD_MIN_PRO_POINTS, protocol.OLD_MAX_PRO_POINTS
 
     @serialized_device_command
@@ -1091,7 +1106,7 @@ class Device:
                 normalized,
                 channel_count=self._resolved_channel_count(),
             )
-        elif native_protocol == "plant_pro":
+        elif native_protocol == "spp":
             spp_points = [
                 {
                     "hour": point["minute"] // 60,
@@ -1131,8 +1146,8 @@ class Device:
         if not await self._async_prepare_command():
             return False
 
-        if self._uses_plant_pro_protocol():
-            native_protocol = "plant_pro"
+        if self._uses_spp_protocol():
+            native_protocol = "spp"
             packet_builder = protocol.spp_effect_schedule_packet
         elif self._uses_wifi_protocol() and self.supports_facebd_effects():
             native_protocol = "facebd"
@@ -1143,7 +1158,7 @@ class Device:
         else:
             self._set_diagnostic_error(
                 "unsupported_transport",
-                "Timed native effects require a supported classic, AquaSky 3.0/FACEBD, or Plant Pro controller",
+                "Timed native effects require a supported classic, FACEBD, or current FFF0/SPP controller",
             )
             return False
 
@@ -1187,7 +1202,7 @@ class Device:
                 "native_effect_schedule_packet": packet.hex(),
             }
         )
-        if native_protocol == "plant_pro":
+        if native_protocol == "spp" and self.uses_plant_spectrum():
             self.diagnostics["plant_pro_effect_schedule"] = normalized
         self._notify_diagnostics_throttled()
         return True
@@ -1403,7 +1418,7 @@ class Device:
                 self._channel_restore_mode = previous_mode
             if self._uses_wifi_protocol():
                 ok = await self._async_send_packet(protocol.wifi_mode_packet(MODE_TO_CODE["manual"]))
-            elif self._uses_plant_pro_protocol():
+            elif self._uses_spp_protocol():
                 ok = await self._async_send_packet(protocol.spp_mode_packet(MODE_TO_CODE["manual"]))
             else:
                 ok = await self._async_send_packet(protocol.old_mode_packet(MODE_TO_CODE["manual"]))
@@ -1458,7 +1473,7 @@ class Device:
                 ok = await self._async_send_packet(protocol.wifi_switch_packet(False))
                 if ok:
                     self.values["led_on_off"] = False
-        elif self._uses_plant_pro_protocol():
+        elif self._uses_spp_protocol():
             any_channel_on = any(self._channel_values())
             if any_channel_on and (force_power or not self.values["led_on_off"]):
                 self.values["led_on_off"] = True
@@ -1545,7 +1560,7 @@ class Device:
             self.native_preview_restore_mode = current_mode if current_mode in MODES else "manual"
 
         mode_changed = self.values.get("mode") != target_mode or previous_type not in (None, schedule_type)
-        if mode_changed and (self._uses_wifi_protocol() or self._uses_plant_pro_protocol()):
+        if mode_changed and (self._uses_wifi_protocol() or self._uses_spp_protocol()):
             if not await self._async_send_packet(self._native_mode_packet(target_mode)):
                 if starting:
                     self.native_preview_restore_mode = None
@@ -1555,9 +1570,9 @@ class Device:
         if self._uses_wifi_protocol():
             packet = protocol.wifi_auto_preview_packet(minute)
             native_protocol = "facebd"
-        elif self._uses_plant_pro_protocol():
+        elif self._uses_spp_protocol():
             packet = protocol.spp_schedule_preview_packet(minute)
-            native_protocol = "plant_pro"
+            native_protocol = "spp"
         else:
             levels = self._classic_native_preview_levels(schedule_type, minute)
             if levels is None:
@@ -1617,7 +1632,7 @@ class Device:
                 return False
             if self._uses_wifi_protocol():
                 stopped = await self._async_send_packet(protocol.wifi_auto_preview_packet(None))
-            elif self._uses_plant_pro_protocol():
+            elif self._uses_spp_protocol():
                 stopped = await self._async_send_packet(protocol.spp_schedule_preview_packet(None))
             else:
                 stopped = await self._async_send_packet(protocol.old_auto_preview_packet(None))
@@ -1642,7 +1657,7 @@ class Device:
     async def _async_restore_native_preview_mode(self) -> bool:
         """Restore the fixture mode saved before native preview."""
         restore_mode = self.native_preview_restore_mode
-        should_restore = self._uses_wifi_protocol() or self._uses_plant_pro_protocol()
+        should_restore = self._uses_wifi_protocol() or self._uses_spp_protocol()
         if restore_mode in MODES and should_restore and self.values.get("mode") != restore_mode:
             if not await self._async_send_packet(self._native_mode_packet(restore_mode)):
                 return False
@@ -1857,7 +1872,7 @@ class Device:
 
         if self._uses_wifi_protocol():
             ok = await self._async_send_packet(protocol.wifi_switch_packet(value))
-        elif self._uses_plant_pro_protocol():
+        elif self._uses_spp_protocol():
             ok = await self._async_send_packet(protocol.spp_switch_packet(value))
         else:
             ok = await self._async_send_packet(protocol.old_switch_packet(value))
@@ -2027,7 +2042,7 @@ class Device:
 
         if self._uses_wifi_protocol():
             packet = protocol.wifi_find_packet()
-        elif self._uses_plant_pro_protocol():
+        elif self._uses_spp_protocol():
             packet = protocol.spp_find_packet()
         else:
             packet = protocol.old_find_packet()
@@ -2050,7 +2065,7 @@ class Device:
 
         if self._uses_wifi_protocol():
             ok = await self._async_send_packet(protocol.wifi_mode_packet(MODE_TO_CODE[option]))
-        elif self._uses_plant_pro_protocol():
+        elif self._uses_spp_protocol():
             ok = await self._async_send_packet(protocol.spp_mode_packet(MODE_TO_CODE[option]))
         else:
             ok = await self._async_send_packet(protocol.old_mode_packet(MODE_TO_CODE[option]))
@@ -2114,9 +2129,9 @@ class Device:
         """Send only the fixture clock command used before the APK state read."""
         if self._uses_wifi_protocol():
             packet = protocol.wifi_clock_packet()
-        elif self._uses_plant_pro_protocol():
-            # FluvalConnect treats Plant Pro as a mesh light and writes the
-            # raw 0xCD + local date/time frame to its FFF2 SPP endpoint.
+        elif self._uses_spp_protocol():
+            # FluvalConnect treats current Plant and Reef fixtures as mesh
+            # lights and writes the raw clock frame to their FFF2 endpoint.
             packet = protocol.mesh_clock_packet()
         else:
             packet = protocol.old_clock_packet()
@@ -2142,14 +2157,22 @@ class Device:
             handler()
         return True
 
+    def _uses_spp_protocol(self) -> bool:
+        """Return true for the live current-generation FFF0/SPP profile."""
+        if self.client is None:
+            return False
+        if getattr(self.client, "spp_transport", None) is True:
+            return True
+        return getattr(self.client, "plant_pro_spp", False) is True
+
     def _uses_plant_pro_protocol(self) -> bool:
-        """Return true for the live Plant Pro 4.0 SPP-over-BLE profile."""
-        return bool(self.client is not None and getattr(self.client, "plant_pro_spp", False) is True)
+        """Compatibility alias for the formerly Plant-specific SPP helper."""
+        return self._uses_spp_protocol()
 
     def _uses_wifi_protocol(self) -> bool:
         """Prefer the live GATT profile over advertisement heuristics."""
         if self.client is not None and getattr(self.client, "command_write_uuid", None):
-            if self._uses_plant_pro_protocol():
+            if self._uses_spp_protocol():
                 self.facebd = False
                 return False
             if getattr(self.client, "wifi_facebd", False):
@@ -2170,7 +2193,7 @@ class Device:
         mode_code = MODE_TO_CODE[mode]
         if self._uses_wifi_protocol():
             return protocol.wifi_mode_packet(mode_code)
-        if self._uses_plant_pro_protocol():
+        if self._uses_spp_protocol():
             return protocol.spp_mode_packet(mode_code)
         return protocol.old_mode_packet(mode_code)
 
@@ -2243,7 +2266,7 @@ class Device:
             return None
         if not decoded:
             return None
-        if self._uses_plant_pro_protocol():
+        if self._uses_spp_protocol():
             supported_keys = {
                 protocol.SPP_MODE_KEY,
                 protocol.SPP_SWITCH_KEY,
@@ -2328,7 +2351,12 @@ class Device:
             report["gatt"] = {
                 "profile": self.client.profile,
                 "wifi_facebd": self.client.wifi_facebd,
-                "plant_pro_spp": self.client.plant_pro_spp,
+                "spp_transport": getattr(
+                    self.client,
+                    "spp_transport",
+                    getattr(self.client, "plant_pro_spp", False),
+                ),
+                "plant_pro_spp": getattr(self.client, "plant_pro_spp", False),
                 "raw_facebd": self.client.raw_facebd,
                 "command_write_uuid": self.client.command_write_uuid,
                 "notify_uuids": list(self.client.notify_uuids),
@@ -2484,10 +2512,10 @@ class Device:
             try:
                 cbor = protocol.decode_cbor_update(data)
             except ValueError as err:
-                _LOGGER.debug("Ignoring unsupported Plant Pro CBOR packet", exc_info=err)
+                _LOGGER.debug("Ignoring unsupported FFF0/SPP CBOR packet", exc_info=err)
                 return False
             if cbor is not None:
-                return self._decode_plant_pro_update(cbor)
+                return self._decode_spp_update(cbor)
             return False
 
         is_cbor_map = bool(data and data[0] >> 5 == 5)
@@ -2637,8 +2665,8 @@ class Device:
                 handler()
         return updated
 
-    def _decode_plant_pro_update(self, data: dict[int, Any]) -> bool:
-        """Decode a Plant Pro 4.0 D2 status map."""
+    def _decode_spp_update(self, data: dict[int, Any]) -> bool:
+        """Decode a current Plant/Reef FFF0/SPP D2 status map."""
         updated = False
         if protocol.SPP_FIRMWARE_VERSION_KEY in data:
             updated = self._store_firmware_version(data[protocol.SPP_FIRMWARE_VERSION_KEY]) or updated
@@ -2670,19 +2698,19 @@ class Device:
         auto_schedule = protocol.decode_spp_auto_schedule(data)
         pro_schedule = protocol.decode_spp_pro_schedule(data)
         if self._record_native_schedule_readback(
-            protocol_name="plant_pro",
+            protocol_name="spp",
             auto=auto_schedule,
             professional=pro_schedule,
         ):
             updated = True
-        if auto_schedule is not None:
+        if auto_schedule is not None and self.uses_plant_spectrum():
             self.diagnostics["plant_pro_auto_schedule"] = auto_schedule
-        if pro_schedule is not None:
+        if pro_schedule is not None and self.uses_plant_spectrum():
             self.diagnostics["plant_pro_pro_schedule"] = pro_schedule
 
         effect_schedule = protocol.decode_spp_effect_schedule(data)
         if self._record_native_effect_schedule_readback(
-            protocol_name="plant_pro",
+            protocol_name="spp",
             windows=effect_schedule,
         ):
             updated = True
@@ -2691,6 +2719,10 @@ class Device:
             for handler in self.updates_component:
                 handler()
         return updated
+
+    def _decode_plant_pro_update(self, data: dict[int, Any]) -> bool:
+        """Compatibility wrapper for the formerly Plant-specific decoder."""
+        return self._decode_spp_update(data)
 
     def _store_firmware_version(self, value: Any) -> bool:
         """Store a locally reported fixture firmware version."""

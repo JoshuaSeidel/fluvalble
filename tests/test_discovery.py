@@ -12,6 +12,7 @@ from custom_components.fluvalble.core.discovery import (
     detect_model,
     discovery_metadata,
     is_likely_fluval,
+    name_looks_fluval,
 )
 from custom_components.fluvalble.core.products import PRODUCTS
 
@@ -40,6 +41,25 @@ def _advertisement(service_uuids=None, service_data=None, manufacturer_data=None
 )
 def test_name_alone_never_qualifies_a_light(name):
     assert not is_likely_fluval(name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["Reef 4.0_AABBCC", "Reef Nano 4.0_AABBCC"],
+)
+def test_current_reef_names_match_fluval_series_shape(name):
+    assert name_looks_fluval(name)
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("Reef 4.0_AABBCC", "Fluval Reef 4.0 LED"),
+        ("Reef Nano 4.0_AABBCC", "Fluval Reef Nano 4.0 LED"),
+    ],
+)
+def test_current_reef_name_fallback_uses_apk_model_family(name, expected):
+    assert detect_model(name, None) == expected
 
 
 def test_facebd_service_uuid_alone_is_not_product_identity():

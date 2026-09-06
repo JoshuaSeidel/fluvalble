@@ -17,6 +17,12 @@ transport. If an advertisement has no APK-known product ID, the integration
 uses a generic layout until an explicit fixture profile or decoded controller
 response supplies the missing capability information.
 
+Reef 4.0 (product 546) and Reef Nano 4.0 (product 547) are current, non-OLD
+fixtures in `LightDeviceUtils`. The APK assigns both light type 1, five channels
+in Pink, Cyan, Blue, Purple, Cold White order, and the four-effect catalogue.
+Their product identity selects the Reef spectrum and channel semantics while
+their connected GATT characteristics select the shared FFF0/SPP command path.
+
 See [APK colour-control evidence](apk-colour-evidence.md) for colour conversion
 details and their source locations in the decompiled APK.
 
@@ -32,6 +38,8 @@ FluvalConnect sends all three controller families through one command queue at
 negotiated ATT payload size and waits 5 ms between chunks. FFF0/SPP parameter
 dumps may likewise span multiple notifications; the integration reassembles a
 complete D2 CBOR value before updating fixture state or confirming a command.
+The transport is therefore named `spp` in protocol-neutral diagnostics; the
+former `plant_pro_spp` flag remains as a compatibility alias.
 
 ## Native schedules and previews
 

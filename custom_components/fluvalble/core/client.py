@@ -123,7 +123,9 @@ class Client:
         self.state_read_uuids: list[str] = []
         self.raw_facebd = False
         self.wifi_facebd = False
-        self.plant_pro_spp = False
+        self.spp_transport = False
+        # Compatibility alias retained for callers from the original
+        # Plant-PRO-only implementation of the shared FFF0/SPP transport.
         self.profile = "unresolved"
         self._connection_lock = asyncio.Lock()
         self._initialization_lock = asyncio.Lock()
@@ -139,6 +141,24 @@ class Client:
         self.last_verification_mismatches: dict[int, dict[str, object]] = {}
         self.last_command_at = 0.0
         self.connect_task = asyncio.create_task(self._connect())
+
+    @property
+    def spp_transport(self) -> bool:
+        """Return whether the connected fixture uses the shared FFF0 profile."""
+        return self._spp_transport
+
+    @spp_transport.setter
+    def spp_transport(self, value: bool) -> None:
+        self._spp_transport = bool(value)
+
+    @property
+    def plant_pro_spp(self) -> bool:
+        """Retain the former Plant-specific name as a synchronized alias."""
+        return self._spp_transport
+
+    @plant_pro_spp.setter
+    def plant_pro_spp(self, value: bool) -> None:
+        self._spp_transport = bool(value)
 
     def _get_characteristic(self, uuid: str) -> BleakGATTCharacteristic | None:
         """Return a characteristic if present, without raising on missing UUIDs."""
@@ -237,11 +257,11 @@ class Client:
         self.wake_read_uuid = self._find_characteristic(WAKE_READ_UUIDS, required=False)
         self.state_read_uuids = self._find_characteristics(WAKE_READ_UUIDS)
         write_uuid = self.command_write_uuid.lower()
-        self.plant_pro_spp = write_uuid.startswith("0000fff2")
-        self.raw_facebd = write_uuid.startswith("facebd") or self.plant_pro_spp
+        self.spp_transport = write_uuid.startswith("0000fff2")
+        self.raw_facebd = write_uuid.startswith("facebd") or self.spp_transport
         self.wifi_facebd = write_uuid.startswith("facebd01")
-        if self.plant_pro_spp:
-            self.profile = "plant_pro_spp"
+        if self.spp_transport:
+            self.profile = "current_spp"
         elif self.wifi_facebd:
             self.profile = "facebd_command"
         else:
@@ -401,7 +421,7 @@ class Client:
         if self.raw_facebd:
             _LOGGER.debug("Got raw Fluval data: %s", to_hex(data))
             payload = bytes(data)
-            if not self.plant_pro_spp:
+            if not self.spp_transport:
                 self._dispatch_update(payload)
                 return
 
@@ -630,7 +650,7 @@ class Client:
             with contextlib.suppress(BleakError):
                 await client.read_gatt_char(self.wake_read_uuid)
 
-        if self.plant_pro_spp:
+        if self.spp_transport:
             await self._wait_for_command_gap()
             await self._write_packet(
                 self.command_write_uuid,

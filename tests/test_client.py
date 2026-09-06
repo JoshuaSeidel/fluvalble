@@ -407,13 +407,24 @@ def test_plant_pro_profile_prefers_spp_endpoint_over_legacy():
     asyncio.run(_async_test_plant_pro_profile_prefers_spp_endpoint_over_legacy())
 
 
+def test_legacy_plant_pro_spp_name_remains_synchronized():
+    client = _make_client()
+
+    client.spp_transport = True
+    assert client.plant_pro_spp is True
+
+    client.plant_pro_spp = False
+    assert client.spp_transport is False
+
+
 async def _async_test_plant_pro_profile_prefers_spp_endpoint_over_legacy():
     client = _make_client()
     client.client = _FakeGattClient(_plant_pro_characteristics())
 
     await client._resolve_characteristics()
 
-    assert client.profile == "plant_pro_spp"
+    assert client.profile == "current_spp"
+    assert client.spp_transport is True
     assert client.plant_pro_spp is True
     assert client.raw_facebd is True
     assert client.wifi_facebd is False
