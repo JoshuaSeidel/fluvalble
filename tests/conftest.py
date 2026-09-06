@@ -94,6 +94,7 @@ def _stub_homeassistant():
         BINARY_SENSOR = "binary_sensor"
         BUTTON = "button"
         SELECT = "select"
+        SCENE = "scene"
         SENSOR = "sensor"
         SWITCH = "switch"
         LIGHT = "light"
@@ -282,6 +283,13 @@ def _stub_homeassistant():
     ha_select = types.ModuleType("homeassistant.components.select")
     ha_select.SelectEntity = _FakeSelectEntity
 
+    # ---- homeassistant.components.scene ----
+    class _FakeScene(_FakeEntity):
+        pass
+
+    ha_scene = types.ModuleType("homeassistant.components.scene")
+    ha_scene.Scene = _FakeScene
+
     # ---- homeassistant.components.switch ----
     class _FakeSwitchEntity(_FakeEntity):
         pass
@@ -379,6 +387,7 @@ def _stub_homeassistant():
         "homeassistant.components.number": ha_number,
         "homeassistant.components.sensor": ha_sensor,
         "homeassistant.components.select": ha_select,
+        "homeassistant.components.scene": ha_scene,
         "homeassistant.components.switch": ha_switch,
         "homeassistant.components.binary_sensor": ha_bs,
         "homeassistant.components.light": ha_light,

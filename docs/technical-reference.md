@@ -50,6 +50,19 @@ synchronization sends the Home Assistant host's UTC offset and Unix time using
 keys `101` and `102`; it does not alter the fixture's daylight-saving flag or
 apply another one-hour offset.
 
+## Classic manual presets
+
+FluvalConnect exposes four fixture-resident P1-P4 presets only when its product
+routing identifies a controller as `LightType.OLD`. The integration mirrors
+that exact APK product boundary and does not expose these scenes on current
+FACEBD or FFF0/SPP controllers.
+
+Each scene applies the channel array returned in the selected preset slot using
+the classic `6804` channel command. The fixture must be on and complete preset
+readback must be available. Saving is intentionally kept as the explicit
+**Save manual preset** action: it uses the APK's zero-based `6806` slot command
+and overwrites memory in the physical fixture.
+
 ## Bluetooth lifecycle and diagnostics
 
 On load and reconnect, the integration asks Home Assistant for its best

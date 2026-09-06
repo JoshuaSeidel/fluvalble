@@ -1707,6 +1707,15 @@ async def _async_test_classic_manual_preset_actions_reject_unavailable_or_unsupp
     assert facebd.diagnostics["status"] == "unsupported_manual_preset"
     facebd._async_send_packet.assert_not_awaited()
 
+    current_mesh = _make_device(name="PlantPro_Test", product_id=386)
+    current_mesh.client = SimpleNamespace(plant_pro_spp=False, wifi_facebd=False, command_write_uuid=None)
+    current_mesh._async_prepare_command = AsyncMock(return_value=True)
+    current_mesh._async_send_packet = AsyncMock(return_value=True)
+
+    assert not await current_mesh.async_save_manual_preset(1)
+    assert current_mesh.diagnostics["status"] == "unsupported_manual_preset"
+    current_mesh._async_send_packet.assert_not_awaited()
+
 
 def test_effect_restore_keeps_complete_channel_packet():
     asyncio.run(_async_test_effect_restore_keeps_complete_channel_packet())

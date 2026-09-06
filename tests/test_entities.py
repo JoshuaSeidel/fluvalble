@@ -23,6 +23,7 @@ from custom_components.fluvalble import (
     diagnostics,
     light,
     number,
+    scene,
     select,
     sensor,
     switch,
@@ -78,6 +79,7 @@ def test_create_entities_for_platforms():
     assert len(button.create_entities(device)) == 2
     assert len(binary_sensor.create_entities(device)) == 1
     assert len(light.create_entities(device)) == 1
+    assert scene.create_entities(device) == []
     channel_entities = number.create_entities(device)
     assert [entity._attr_name for entity in channel_entities] == [
         "Red",
@@ -89,6 +91,107 @@ def test_create_entities_for_platforms():
 
     device.facebd = True
     assert len(switch.create_entities(device)) == 1
+
+
+def test_classic_manual_presets_are_device_linked_scenes():
+    device = Device(
+        "AquaSky2.0_Test",
+        config_data={"mac": "AA:BB:CC:DD:EE:FF", "product_id": 328},
+    )
+    device.connected = True
+    device.conn_info["last_seen"] = datetime.now(UTC)
+    device.values.update(
+        {
+            "led_on_off": True,
+            "native_manual_presets": [[10, 20, 30, 40]] * 4,
+        }
+    )
+
+    entities = scene.create_entities(device)
+
+    assert [entity.slot for entity in entities] == [1, 2, 3, 4]
+    assert [entity._attr_translation_key for entity in entities] == [
+        "manual_preset_1",
+        "manual_preset_2",
+        "manual_preset_3",
+        "manual_preset_4",
+    ]
+    assert [entity._attr_unique_id for entity in entities] == [
+        "AABBCCDDEEFF_manual_preset_1",
+        "AABBCCDDEEFF_manual_preset_2",
+        "AABBCCDDEEFF_manual_preset_3",
+        "AABBCCDDEEFF_manual_preset_4",
+    ]
+    assert all(entity._attr_device_info["identifiers"] == {(DOMAIN, "AA:BB:CC:DD:EE:FF")} for entity in entities)
+    assert all(entity._attr_available for entity in entities)
+
+
+def test_manual_preset_scene_requires_readback_and_light_on():
+    device = Device(
+        "AquaSky2.0_Test",
+        config_data={"mac": "AA:BB:CC:DD:EE:FF", "product_id": 328},
+    )
+    device.connected = True
+    device.conn_info["last_seen"] = datetime.now(UTC)
+    entity = scene.FluvalManualPresetScene(device, 1)
+
+    assert entity._attr_available is False
+
+    device.values["native_manual_presets"] = [[10, 20, 30, 40]] * 4
+    entity.internal_update()
+    assert entity._attr_available is False
+
+    device.values["led_on_off"] = True
+    entity.internal_update()
+    assert entity._attr_available is True
+
+
+def test_manual_preset_scene_recalls_fixture_slot():
+    asyncio.run(_async_test_manual_preset_scene_recalls_fixture_slot())
+
+
+async def _async_test_manual_preset_scene_recalls_fixture_slot():
+    device = Device(
+        "AquaSky2.0_Test",
+        config_data={"mac": "AA:BB:CC:DD:EE:FF", "product_id": 328},
+    )
+    device.connected = True
+    device.values.update(
+        {
+            "led_on_off": True,
+            "native_manual_presets": [[10, 20, 30, 40]] * 4,
+        }
+    )
+    device.async_recall_manual_preset = AsyncMock(return_value=True)
+    entity = scene.FluvalManualPresetScene(device, 3)
+
+    await entity.async_activate()
+
+    device.async_recall_manual_preset.assert_awaited_once_with(3)
+
+
+def test_manual_preset_scene_surfaces_command_failure():
+    asyncio.run(_async_test_manual_preset_scene_surfaces_command_failure())
+
+
+async def _async_test_manual_preset_scene_surfaces_command_failure():
+    device = Device(
+        "AquaSky2.0_Test",
+        config_data={"mac": "AA:BB:CC:DD:EE:FF", "product_id": 328},
+    )
+    device.connected = True
+    device.values.update(
+        {
+            "led_on_off": True,
+            "native_manual_presets": [[10, 20, 30, 40]] * 4,
+        }
+    )
+    device.client = SimpleNamespace(last_error="fixture unavailable")
+    device.async_recall_manual_preset = AsyncMock(return_value=False)
+    entity = scene.FluvalManualPresetScene(device, 2)
+
+    with pytest.raises(HomeAssistantError, match="fixture unavailable"):
+        await entity.async_activate()
 
 
 @pytest.mark.parametrize(

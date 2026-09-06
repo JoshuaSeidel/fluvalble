@@ -1912,6 +1912,25 @@ class Device:
             return None
         return [int(value) for value in presets[slot - 1]]
 
+    def supports_manual_presets(self) -> bool:
+        """Return whether APK product and live transport evidence support P1-P4."""
+        product = product_from_id(self.product_id)
+        if product is not None and product.manual_preset_count != 4:
+            return False
+        if self.client is not None and getattr(self.client, "command_write_uuid", None):
+            return self.client.command_write_uuid.lower().startswith("00001001")
+        if product is not None:
+            return product.manual_preset_count == 4
+
+        service_uuids = [str(uuid).lower() for uuid in self.conn_info.get("service_uuids", [])]
+        return any(uuid.startswith(("00001000", "00001002")) for uuid in service_uuids) and not any(
+            uuid.startswith(("facebd", "0000fff0")) for uuid in service_uuids
+        )
+
+    def manual_preset_available(self, slot: int) -> bool:
+        """Return whether one classic preset has complete fixture readback."""
+        return 1 <= slot <= 4 and self._manual_preset_values(slot) is not None
+
     @serialized_device_command
     async def async_recall_manual_preset(self, slot: int) -> bool:
         """Apply one fixture-resident classic P1-P4 preset as FluvalConnect does."""
@@ -1920,7 +1939,7 @@ class Device:
             return False
         if not await self._async_prepare_command():
             return False
-        if self._uses_wifi_protocol() or self._uses_plant_pro_protocol():
+        if not self.supports_manual_presets():
             self._set_diagnostic_error(
                 "unsupported_manual_preset",
                 "Fixture-resident manual presets are supported only by classic Fluval controllers",
@@ -1964,7 +1983,7 @@ class Device:
             return False
         if not await self._async_prepare_command():
             return False
-        if self._uses_wifi_protocol() or self._uses_plant_pro_protocol():
+        if not self.supports_manual_presets():
             self._set_diagnostic_error(
                 "unsupported_manual_preset",
                 "Fixture-resident manual presets are supported only by classic Fluval controllers",
