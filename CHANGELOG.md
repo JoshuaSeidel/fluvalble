@@ -30,6 +30,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Complete Roma & Shaker 2.0 current-controller handling using the APK's
+  four-channel RGBW payload width and eleven-effect catalogue for direct
+  effects, Auto and Professional schedules, timed effects, and readback.
 - Restore a neutral static output after leaving a Reef native effect by using
   its APK-defined channel 5 Cold White bank. The former generic fallback used
   channel 4, which is Purple on Reef fixtures.

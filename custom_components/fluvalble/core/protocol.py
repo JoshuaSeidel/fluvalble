@@ -310,10 +310,10 @@ def spp_single_zone_packet(channel_index: int, value: int) -> bytes:
     )
 
 
-def spp_effect_packet(effect_id: int) -> bytes:
-    """Build a current Plant/Reef native-effect packet."""
-    if not 0 <= effect_id <= 4:
-        raise ValueError("FFF0/SPP effect ID must be between 0 and 4")
+def spp_effect_packet(effect_id: int, *, maximum_effect_id: int = 4) -> bytes:
+    """Build a current-controller native-effect packet."""
+    if not 0 <= effect_id <= maximum_effect_id:
+        raise ValueError(f"FFF0/SPP effect ID must be between 0 and {maximum_effect_id}")
     return spp_command({SPP_EFFECT_KEY: effect_id})
 
 
@@ -329,13 +329,14 @@ def spp_auto_schedule_packet(
     sleep: tuple[int, int] | None,
     day_levels: Iterable[int],
     night_levels: Iterable[int],
+    channel_count: int = 5,
 ) -> bytes:
     """Build the current FFF0/SPP Auto schedule stored in keys 8-12."""
     sunrise_data = bytes(_validate_time_with_ramp(sunrise, "sunrise"))
     sunset_data = bytes(_validate_time_with_ramp(sunset, "sunset"))
     sleep_data = bytes((0xFF, 0xFF) if sleep is None else _validate_time(sleep, "sleep"))
-    day_data = bytes(_validate_levels(day_levels, "day_levels"))
-    night_data = bytes(_validate_levels(night_levels, "night_levels"))
+    day_data = bytes(_validate_levels(day_levels, "day_levels", channel_count=channel_count))
+    night_data = bytes(_validate_levels(night_levels, "night_levels", channel_count=channel_count))
     return spp_command(
         {
             SPP_AUTO_SUNRISE_KEY: sunrise_data,
@@ -347,7 +348,7 @@ def spp_auto_schedule_packet(
     )
 
 
-def spp_pro_schedule_packet(points: Iterable[dict[str, Any]]) -> bytes:
+def spp_pro_schedule_packet(points: Iterable[dict[str, Any]], *, channel_count: int = 5) -> bytes:
     """Build the current FFF0/SPP Pro-mode schedule in CBOR key 13."""
     normalized = list(points)
     _validate_pro_point_count(
@@ -359,17 +360,21 @@ def spp_pro_schedule_packet(points: Iterable[dict[str, Any]]) -> bytes:
     blob = bytearray((len(normalized),))
     for point in normalized:
         hour, minute = _validate_time((point["hour"], point["minute"]), "point")
-        levels = _validate_levels(point["levels"], "point levels")
+        levels = _validate_levels(point["levels"], "point levels", channel_count=channel_count)
         blob.extend((hour, minute, *levels))
     return spp_command({SPP_PRO_SCHEDULE_KEY: bytes(blob)})
 
 
-def spp_effect_schedule_packet(windows: Iterable[dict[str, Any]]) -> bytes:
+def spp_effect_schedule_packet(
+    windows: Iterable[dict[str, Any]],
+    *,
+    maximum_effect_id: int = 4,
+) -> bytes:
     """Build seven fixed current-controller effect slots in CBOR key 15."""
     blob = _effect_schedule_blob(
         windows,
         maximum=SPP_MAX_EFFECT_WINDOWS,
-        maximum_effect_id=4,
+        maximum_effect_id=maximum_effect_id,
         label="FFF0/SPP",
         fixed_slots=True,
     )
@@ -697,7 +702,7 @@ def cbor_map(values: Mapping[int, Any]) -> bytes:
     return bytes(packet)
 
 
-def decode_spp_auto_schedule(data: dict[int, Any]) -> dict[str, Any] | None:
+def decode_spp_auto_schedule(data: dict[int, Any], *, channel_count: int = 5) -> dict[str, Any] | None:
     """Decode current FFF0/SPP Auto schedule keys 8-12 from D2 state."""
     sunrise = data.get(SPP_AUTO_SUNRISE_KEY)
     sunset = data.get(SPP_AUTO_SUNSET_KEY)
@@ -712,9 +717,9 @@ def decode_spp_auto_schedule(data: dict[int, Any]) -> dict[str, Any] | None:
         and isinstance(sleep, bytes)
         and len(sleep) >= 2
         and isinstance(day_levels, bytes)
-        and len(day_levels) >= 5
+        and len(day_levels) >= channel_count
         and isinstance(night_levels, bytes)
-        and len(night_levels) >= 5
+        and len(night_levels) >= channel_count
     ):
         return None
     return {
@@ -723,29 +728,38 @@ def decode_spp_auto_schedule(data: dict[int, Any]) -> dict[str, Any] | None:
         "sunset": f"{sunset[0]:02d}:{sunset[1]:02d}",
         "sunset_ramp": sunset[2],
         "sleep": None if sleep[0] == 0xFF else f"{sleep[0]:02d}:{sleep[1]:02d}",
-        "day_levels": list(day_levels[:5]),
-        "night_levels": list(night_levels[:5]),
+        "day_levels": list(day_levels[:channel_count]),
+        "night_levels": list(night_levels[:channel_count]),
     }
 
 
-def decode_spp_pro_schedule(data: dict[int, Any]) -> list[dict[str, Any]] | None:
+def decode_spp_pro_schedule(
+    data: dict[int, Any],
+    *,
+    channel_count: int = 5,
+) -> list[dict[str, Any]] | None:
     """Decode the current FFF0/SPP key-13 Pro schedule."""
     blob = data.get(SPP_PRO_SCHEDULE_KEY)
     if not isinstance(blob, bytes) or not blob:
         return None
     count = blob[0]
-    if count > SPP_MAX_PRO_POINTS or len(blob) < 1 + (count * 7):
+    record_size = 2 + channel_count
+    if count > SPP_MAX_PRO_POINTS or len(blob) < 1 + (count * record_size):
         return None
     return [
         {
-            "time": f"{blob[1 + index * 7]:02d}:{blob[2 + index * 7]:02d}",
-            "levels": list(blob[3 + index * 7 : 8 + index * 7]),
+            "time": f"{blob[1 + index * record_size]:02d}:{blob[2 + index * record_size]:02d}",
+            "levels": list(blob[3 + index * record_size : 3 + index * record_size + channel_count]),
         }
         for index in range(count)
     ]
 
 
-def decode_spp_effect_schedule(data: dict[int, Any]) -> list[dict[str, Any]] | None:
+def decode_spp_effect_schedule(
+    data: dict[int, Any],
+    *,
+    maximum_effect_id: int = 4,
+) -> list[dict[str, Any]] | None:
     """Decode the current FFF0/SPP key-15 timed-effect schedule."""
     blob = data.get(SPP_EFFECT_SCHEDULE_KEY)
     if not isinstance(blob, bytes) or len(blob) != SPP_MAX_EFFECT_WINDOWS * 6:
@@ -753,7 +767,7 @@ def decode_spp_effect_schedule(data: dict[int, Any]) -> list[dict[str, Any]] | N
     return _decode_effect_schedule_blob(
         blob,
         maximum=SPP_MAX_EFFECT_WINDOWS,
-        maximum_effect_id=4,
+        maximum_effect_id=maximum_effect_id,
     )
 
 
@@ -883,10 +897,12 @@ def _validate_time_with_ramp(value: tuple[int, int, int], label: str) -> tuple[i
     return hour, minute, ramp
 
 
-def _validate_levels(values: Iterable[int], label: str) -> list[int]:
+def _validate_levels(values: Iterable[int], label: str, *, channel_count: int = 5) -> list[int]:
     levels = [int(value) for value in values]
-    if len(levels) != 5 or any(not 0 <= value <= 100 for value in levels):
-        raise ValueError(f"FFF0/SPP {label} must contain five values from 0 to 100")
+    if channel_count not in (4, 5):
+        raise ValueError("FFF0/SPP channel count must be four or five")
+    if len(levels) != channel_count or any(not 0 <= value <= 100 for value in levels):
+        raise ValueError(f"FFF0/SPP {label} must contain {channel_count} values from 0 to 100")
     return levels
 
 
