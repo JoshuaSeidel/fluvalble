@@ -93,7 +93,11 @@ class FluvalbleScheduleCard extends HTMLElement {
               <span>${points.length} of ${maxPoints} time points set</span>
               <button type="button" id="point-add" ${points.length >= maxPoints || selectedPoint ? "disabled" : ""}>Add point at ${time}</button>
             </div>
-            <div class="points-strip">${buildPointCards(points, definitions, this.previewMinute)}</div>
+            <div class="points-nav">
+              <button type="button" id="point-prev" class="chev" title="Previous time point">&lsaquo;</button>
+              <div class="points-strip" id="points-strip">${buildPointCards(points, definitions, this.previewMinute)}</div>
+              <button type="button" id="point-next" class="chev" title="Next time point">&rsaquo;</button>
+            </div>
             ${buildPointEditor(selectedPoint, selectedIndex, definitions, points.length > 2)}
           </div>
 
@@ -146,7 +150,10 @@ class FluvalbleScheduleCard extends HTMLElement {
         button[disabled] { cursor: not-allowed; opacity: .45; }
         .points { border-top: 1px solid var(--divider-color); margin-top: 16px; padding-top: 12px; }
         .points-head { align-items: center; color: var(--secondary-text-color); display: flex; font-size: 13px; gap: 12px; justify-content: space-between; margin-bottom: 10px; }
-        .points-strip { display: flex; gap: 10px; overflow-x: auto; padding: 4px 2px 12px; scroll-snap-type: x proximity; }
+        .points-nav { align-items: center; display: grid; gap: 6px; grid-template-columns: auto 1fr auto; }
+        .points-strip { display: flex; gap: 10px; overflow-x: auto; padding: 4px 2px 12px; scroll-snap-type: x proximity; scrollbar-width: thin; }
+        .chev { background: var(--secondary-background-color); border: 1px solid var(--divider-color); border-radius: 50%; color: var(--primary-text-color); cursor: pointer; font-size: 20px; height: 34px; line-height: 1; padding: 0; width: 34px; }
+        .chev:hover { background: var(--primary-color); color: var(--text-primary-color); }
         .point { background: var(--secondary-background-color); border: 1px solid var(--divider-color); border-radius: 14px; color: var(--primary-text-color); cursor: pointer; flex: 0 0 auto; min-width: 104px; padding: 10px 12px 8px; scroll-snap-align: center; text-align: left; }
         .point.selected { border-color: var(--primary-color); box-shadow: inset 0 0 0 1px var(--primary-color); }
         .point-time { font-size: 14px; font-weight: 600; margin-bottom: 8px; white-space: nowrap; }
@@ -231,6 +238,36 @@ class FluvalbleScheduleCard extends HTMLElement {
     root.getElementById("stop").addEventListener("click", () => {
       this.stopPreviewPlayback();
     });
+
+    const strip = root.getElementById("points-strip");
+    const centerSelected = () => {
+      if (!strip) return;
+      const selected = strip.querySelector(".point.selected");
+      if (!selected) return;
+      // Set scrollLeft directly: scrollIntoView would also scroll the dashboard behind us.
+      strip.scrollLeft = selected.offsetLeft - ((strip.clientWidth - selected.clientWidth) / 2);
+    };
+    centerSelected();
+
+    // Dashboard-level swipe handlers (hass-swipe-navigation) otherwise treat a drag
+    // across the strip as a view change, making the strip unscrollable by touch.
+    if (strip) {
+      ["touchstart", "touchmove", "touchend", "pointerdown", "pointermove"].forEach((name) => {
+        strip.addEventListener(name, (event) => event.stopPropagation(), { passive: true });
+      });
+    }
+
+    const stepPoint = (delta) => {
+      const index = neighborPointIndex(this.store.points, this.previewMinute, delta);
+      if (index === -1) return;
+      this.previewMinute = this.store.points[index].minute;
+      setSelectedMinute(this.config, this.previewMinute, this);
+      this.render();
+    };
+    const prevButton = root.getElementById("point-prev");
+    const nextButton = root.getElementById("point-next");
+    if (prevButton) prevButton.addEventListener("click", () => stepPoint(-1));
+    if (nextButton) nextButton.addEventListener("click", () => stepPoint(1));
 
     root.querySelectorAll(".point").forEach((element) => {
       element.addEventListener("click", () => {
@@ -1811,6 +1848,25 @@ function buildPointEditor(point, index, definitions, canDelete) {
       <div class="pe-rows">${rows}</div>
     </div>
   `;
+}
+
+// Index of the point a chevron should land on. With a point selected this is the
+// neighbour, wrapping at the ends. With the scrubber between points it is the next
+// point in that direction, so the first press never jumps backwards past the cursor.
+function neighborPointIndex(points, minute, delta) {
+  if (!points.length) return -1;
+  const current = findPointIndex(points, minute);
+  if (current !== -1) {
+    return (current + delta + points.length) % points.length;
+  }
+  if (delta > 0) {
+    const next = points.findIndex((point) => point.minute > minute);
+    return next === -1 ? 0 : next;
+  }
+  for (let index = points.length - 1; index >= 0; index -= 1) {
+    if (points[index].minute < minute) return index;
+  }
+  return points.length - 1;
 }
 
 function findPointIndex(points, minute) {
