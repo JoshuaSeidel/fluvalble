@@ -28,6 +28,12 @@ class FluvalbleScheduleCard extends HTMLElement {
       ...config,
     };
     this.store = getScheduleStore(this.config);
+    // A sibling card without points may have seeded the shared store with the
+    // placeholder curve before this one mounted; this card's own points win.
+    if (this.store.pointsSource === "default" && Array.isArray(config.points) && config.points.length) {
+      this.store.points = normalizePoints(config.points);
+      this.store.pointsSource = "config";
+    }
     this.previewMinute = this.previewMinute ?? this.store.selectedMinute;
     this._subscribeStore();
     this.attachShadow({ mode: "open" });
@@ -734,12 +740,23 @@ class FluvalbleScheduleCard extends HTMLElement {
         type: "fluvalble/get_schedule",
         ...targetData(this.config),
       });
+      const fixturePoints = result?.fixture?.professional;
       if (Array.isArray(result?.points) && result.points.length) {
         this.store.points = normalizePoints(result.points);
+        this.store.pointsSource = "saved";
+        this.store.scheduleSource = "local";
+      } else if (Array.isArray(fixturePoints) && fixturePoints.length) {
+        // No Home Assistant copy has been saved yet. Showing the placeholder curve
+        // here reads as "the fixture's schedule is wrong"; show the fixture's own
+        // Professional schedule instead, which is what the app displays.
+        this.store.points = normalizePoints(fixturePoints);
+        this.store.pointsSource = "fixture";
+        this.store.scheduleSource = "fixture";
+      } else {
+        this.store.scheduleSource = "local";
       }
       this.store.fixture = result?.fixture || null;
       this.store.mode = ["native", "auto"].includes(result?.mode) ? "native" : "manual";
-      this.store.scheduleSource = "local";
       this.store.loaded = true;
       notifyScheduleStore(this.config, null);
       this.render();
@@ -788,6 +805,7 @@ class FluvalbleScheduleCard extends HTMLElement {
         return;
       }
       this.store.points = normalizePoints(points);
+      this.store.pointsSource = "fixture";
       this.store.mode = "native";
       this.store.scheduleSource = "fixture";
       notifyScheduleStore(this.config, this);
@@ -1397,6 +1415,10 @@ function getScheduleStore(config) {
     window.__fluvalbleScheduleStores[key] = {
       key,
       points: normalizePoints(config.points || DEFAULT_POINTS),
+      // Every card on a fixture shares one store, and the first to mount seeds it.
+      // That is often a card with no schedule of its own (timed effects), so record
+      // the provenance and let a better source replace a placeholder curve.
+      pointsSource: Array.isArray(config.points) && config.points.length ? "config" : "default",
       selectedMinute: 660,
       editorMode: config.schedule_type === "auto" ? "auto" : "professional",
       mode: "manual",
