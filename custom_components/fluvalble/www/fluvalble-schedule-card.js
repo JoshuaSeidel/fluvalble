@@ -56,7 +56,11 @@ class FluvalbleScheduleCard extends HTMLElement {
 
     const points = this.store.points;
     const time = formatMinute(this.previewMinute);
-    const graph = buildGraph(points, scheduleChannelDefinitions(this.store));
+    const definitions = scheduleChannelDefinitions(this.store);
+    const graph = buildGraph(points, definitions);
+    const maxPoints = Number(this.config.max_points) || MAX_SCHEDULE_POINTS;
+    const selectedIndex = findPointIndex(points, this.previewMinute);
+    const selectedPoint = selectedIndex === -1 ? null : points[selectedIndex];
 
     root.innerHTML = `
       <ha-card>
@@ -82,6 +86,15 @@ class FluvalbleScheduleCard extends HTMLElement {
             <span>00:00</span>
             <input id="time" type="range" min="0" max="1439" step="5" value="${this.previewMinute}">
             <span>24:00</span>
+          </div>
+
+          <div class="points">
+            <div class="points-head">
+              <span>${points.length} of ${maxPoints} time points set</span>
+              <button type="button" id="point-add" ${points.length >= maxPoints || selectedPoint ? "disabled" : ""}>Add point at ${time}</button>
+            </div>
+            <div class="points-strip">${buildPointCards(points, definitions, this.previewMinute)}</div>
+            ${buildPointEditor(selectedPoint, selectedIndex, definitions, points.length > 2)}
           </div>
 
           <div class="actions">
@@ -129,6 +142,29 @@ class FluvalbleScheduleCard extends HTMLElement {
         button#load-fixture { background: var(--secondary-background-color); color: var(--primary-text-color); }
         button#flatten { background: var(--warning-color, #f0a000); color: var(--primary-text-color); }
         button#stop { background: var(--error-color); }
+        button.danger { background: var(--error-color); }
+        button[disabled] { cursor: not-allowed; opacity: .45; }
+        .points { border-top: 1px solid var(--divider-color); margin-top: 16px; padding-top: 12px; }
+        .points-head { align-items: center; color: var(--secondary-text-color); display: flex; font-size: 13px; gap: 12px; justify-content: space-between; margin-bottom: 10px; }
+        .points-strip { display: flex; gap: 10px; overflow-x: auto; padding: 4px 2px 12px; scroll-snap-type: x proximity; }
+        .point { background: var(--secondary-background-color); border: 1px solid var(--divider-color); border-radius: 14px; color: var(--primary-text-color); cursor: pointer; flex: 0 0 auto; min-width: 104px; padding: 10px 12px 8px; scroll-snap-align: center; text-align: left; }
+        .point.selected { border-color: var(--primary-color); box-shadow: inset 0 0 0 1px var(--primary-color); }
+        .point-time { font-size: 14px; font-weight: 600; margin-bottom: 8px; white-space: nowrap; }
+        .point-levels { display: grid; gap: 3px; }
+        .lvl { align-items: center; color: var(--secondary-text-color); display: grid; font-size: 12px; gap: 6px; grid-template-columns: 10px 1fr; }
+        .lvl i { border: 1px solid rgba(0, 0, 0, .25); border-radius: 50%; display: block; height: 10px; width: 10px; }
+        .point-index { color: var(--secondary-text-color); font-size: 11px; margin-top: 8px; text-align: center; }
+        .point-hint { color: var(--secondary-text-color); font-size: 13px; padding: 4px 2px; }
+        .point-editor { background: var(--secondary-background-color); border-radius: 12px; padding: 12px; }
+        .pe-head { align-items: center; display: flex; gap: 10px; margin-bottom: 10px; }
+        .pe-title { font-weight: 600; }
+        .pe-rows { display: grid; gap: 8px; }
+        .pe-row { align-items: center; display: grid; gap: 10px; grid-template-columns: 12px 96px 1fr 64px; }
+        .pe-row .dot { border: 1px solid rgba(0, 0, 0, .25); border-radius: 50%; height: 12px; width: 12px; }
+        .pe-row label { color: var(--secondary-text-color); font-size: 13px; }
+        .pe-number, #pe-time { background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 6px; color: var(--primary-text-color); padding: 5px 8px; width: 100%; }
+        #pe-time { width: auto; }
+        @media (max-width: 480px) { .pe-row { grid-template-columns: 12px 74px 1fr 54px; } }
       </style>
     `;
 
@@ -194,6 +230,74 @@ class FluvalbleScheduleCard extends HTMLElement {
     });
     root.getElementById("stop").addEventListener("click", () => {
       this.stopPreviewPlayback();
+    });
+
+    root.querySelectorAll(".point").forEach((element) => {
+      element.addEventListener("click", () => {
+        this.previewMinute = Number(element.dataset.minute);
+        setSelectedMinute(this.config, this.previewMinute, this);
+        this.render();
+      });
+    });
+
+    const addButton = root.getElementById("point-add");
+    if (addButton) {
+      addButton.addEventListener("click", () => {
+        if (!addSchedulePoint(this.config, this.previewMinute, this, maxPoints)) {
+          this.toast(`The fixture holds at most ${maxPoints} time points`);
+          return;
+        }
+        persistSchedule(this.config, this);
+        this.render();
+        this.toast(`Added a time point at ${formatMinute(this.previewMinute)}`);
+      });
+    }
+
+    const deleteButton = root.getElementById("pe-delete");
+    if (deleteButton) {
+      deleteButton.addEventListener("click", () => {
+        const minute = this.previewMinute;
+        if (!deleteSchedulePoint(this.config, minute, this)) {
+          this.toast("A schedule needs at least two time points");
+          return;
+        }
+        persistSchedule(this.config, this);
+        this.render();
+        this.toast(`Removed the time point at ${formatMinute(minute)}`);
+      });
+    }
+
+    const timeInput = root.getElementById("pe-time");
+    if (timeInput) {
+      timeInput.addEventListener("change", (event) => {
+        const target = parseTime(event.target.value);
+        if (!moveSchedulePoint(this.config, this.previewMinute, target, this)) {
+          this.toast("Another time point already uses that time");
+          this.render();
+          return;
+        }
+        this.previewMinute = target;
+        setSelectedMinute(this.config, target, this);
+        persistSchedule(this.config, this);
+        this.render();
+      });
+    }
+
+    // Live-update the paired input while dragging; commit and repaint on release so
+    // the graph never re-renders mid-gesture and drop the slider.
+    root.querySelectorAll(".pe-slider, .pe-number").forEach((element) => {
+      const channel = element.dataset.channel;
+      element.addEventListener("input", (event) => {
+        const value = clampPercent(event.target.value);
+        const selector = event.target.classList.contains("pe-slider") ? ".pe-number" : ".pe-slider";
+        const partner = root.querySelector(`${selector}[data-channel="${channel}"]`);
+        if (partner) partner.value = value;
+        setSchedulePointChannel(this.config, this.previewMinute, channel, value, this);
+      });
+      element.addEventListener("change", () => {
+        persistSchedule(this.config, this);
+        this.render();
+      });
     });
   }
 
@@ -1462,11 +1566,33 @@ function autoChannelLabels(store) {
 
 function scheduleChannelDefinitions(store) {
   const labels = autoChannelLabels(store);
-  return CHANNELS.slice(0, labels.length).map(([key, color, fallback], index) => [
-    key,
-    color,
-    labels[index] || fallback,
-  ]);
+  return CHANNELS.slice(0, labels.length).map(([key, color, fallback], index) => {
+    const label = labels[index] || fallback;
+    return [key, channelColor(label, color), label];
+  });
+}
+
+// The positional CHANNELS palette is RGBW-shaped. Plant and Reef fixtures report
+// their own emitter names, so resolve the swatch from the reported label first and
+// fall back to the positional colour only when the fixture has not been read yet.
+const CHANNEL_COLOR_BY_NAME = [
+  [/warm\s*white|amber/i, "#ffb35c"],
+  [/(cold|cool)\s*white/i, "#c9d8ff"],
+  [/pink|magenta/i, "#e8306b"],
+  [/violet|purple|\buv\b/i, "#b86cff"],
+  [/royal\s*blue|\bblue\b/i, "#2f6bff"],
+  [/\bgreen\b/i, "#45c767"],
+  [/\bred\b/i, "#ff4a3d"],
+  [/\bwhite\b/i, "#f2f6ff"],
+];
+
+function channelColor(label, fallback) {
+  if (typeof label === "string") {
+    for (const [pattern, color] of CHANNEL_COLOR_BY_NAME) {
+      if (pattern.test(label)) return color;
+    }
+  }
+  return fallback;
 }
 
 function buildAutoLevelRows(period, levels, labels) {
@@ -1643,6 +1769,96 @@ function buildChannelBars(channels, editable = false, definitions = CHANNELS) {
       <div class="value">${clampPercent(channels[key])}%</div>
     </div>
   `).join("");
+}
+
+const MAX_SCHEDULE_POINTS = 12;
+
+function buildPointCards(points, definitions, selectedMinute) {
+  return points.map((point, index) => {
+    const selected = point.minute === selectedMinute;
+    const levels = definitions.map(([key, color]) => `
+      <div class="lvl"><i style="background:${color}"></i><span>${clampPercent(point[key])}%</span></div>
+    `).join("");
+    return `
+      <button type="button" class="point${selected ? " selected" : ""}" data-minute="${point.minute}">
+        <div class="point-time">${formatMinute(point.minute)}</div>
+        <div class="point-levels">${levels}</div>
+        <div class="point-index">${String(index + 1).padStart(2, "0")}</div>
+      </button>
+    `;
+  }).join("");
+}
+
+function buildPointEditor(point, index, definitions, canDelete) {
+  if (!point) {
+    return `<div class="point-hint">Scrub the slider to a time and press <b>Add point</b>, or tap a point above to edit it.</div>`;
+  }
+  const rows = definitions.map(([key, color, label]) => `
+    <div class="pe-row">
+      <i class="dot" style="background:${color}"></i>
+      <label>${escapeHtml(label)}</label>
+      <input class="pe-slider" data-channel="${key}" type="range" min="0" max="100" step="1" value="${clampPercent(point[key])}">
+      <input class="pe-number" data-channel="${key}" type="number" min="0" max="100" step="1" value="${clampPercent(point[key])}">
+    </div>
+  `).join("");
+  return `
+    <div class="point-editor">
+      <div class="pe-head">
+        <span class="pe-title">Point ${String(index + 1).padStart(2, "0")}</span>
+        <input id="pe-time" type="time" value="${formatMinute(point.minute)}">
+        <button type="button" id="pe-delete" class="danger" ${canDelete ? "" : "disabled"}>Delete</button>
+      </div>
+      <div class="pe-rows">${rows}</div>
+    </div>
+  `;
+}
+
+function findPointIndex(points, minute) {
+  return points.findIndex((point) => point.minute === minute);
+}
+
+function addSchedulePoint(config, minute, source, limit = MAX_SCHEDULE_POINTS) {
+  const store = getScheduleStore(config);
+  if (store.points.length >= limit) return false;
+  if (findPointIndex(store.points, minute) !== -1) return false;
+  const channels = interpolate(store.points, minute);
+  store.scheduleSource = "local";
+  store.points.push({ minute, ...channels });
+  store.points.sort((a, b) => a.minute - b.minute);
+  notifyScheduleStore(config, source);
+  return true;
+}
+
+function deleteSchedulePoint(config, minute, source) {
+  const store = getScheduleStore(config);
+  if (store.points.length <= 2) return false;
+  const index = findPointIndex(store.points, minute);
+  if (index === -1) return false;
+  store.scheduleSource = "local";
+  store.points.splice(index, 1);
+  notifyScheduleStore(config, source);
+  return true;
+}
+
+function setSchedulePointChannel(config, minute, channel, value, source) {
+  const store = getScheduleStore(config);
+  const point = store.points.find((entry) => entry.minute === minute);
+  if (!point) return false;
+  store.scheduleSource = "local";
+  point[channel] = clampPercent(value);
+  notifyScheduleStore(config, source);
+  return true;
+}
+
+function moveSchedulePoint(config, fromMinute, toMinute, source) {
+  const store = getScheduleStore(config);
+  const point = store.points.find((entry) => entry.minute === fromMinute);
+  if (!point || findPointIndex(store.points, toMinute) !== -1) return false;
+  store.scheduleSource = "local";
+  point.minute = toMinute;
+  store.points.sort((a, b) => a.minute - b.minute);
+  notifyScheduleStore(config, source);
+  return true;
 }
 
 function buildWavelengthSpectrum(channels, profileName) {

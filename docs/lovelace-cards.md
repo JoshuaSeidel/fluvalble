@@ -34,7 +34,10 @@ module as a dashboard resource:
 The same JavaScript resource registers four custom cards:
 
 - `custom:fluvalble-schedule-card` shows the 24-hour channel schedule, schedule
-  mode and data source, physical preview controls, and the selected time slider.
+  mode and data source, physical preview controls, the selected time slider, and
+  a time-point strip that mirrors the FluvalConnect Professional editor: one card
+  per point showing every channel level, tap to select, and an inline editor for
+  that point's time and levels.
 - `custom:fluvalble-spectrum-card` shows editable channel bars for the selected
   schedule time.
 - `custom:fluvalble-wavelength-card` shows the selected schedule levels against
@@ -179,6 +182,27 @@ spectrum_profile: plant_current
 Without a positively identified product or explicit override, the card reports
 that wavelength data is unavailable instead of displaying another fixture's
 spectrum.
+
+
+### Editing time points
+
+The schedule card renders each point in `points` as its own card, in the order the
+fixture runs them, with a swatch and percentage per channel. Channel names and
+swatch colours come from the fixture once it has been read, so a Plant or Reef
+fixture shows its own emitters (Pink, Cold White, Warm White) rather than RGBW.
+
+- **Tap a point** to select it. The graph cursor, the spectrum card and the
+  wavelength card all follow the selection.
+- **Add point** appears when the slider sits at a time with no point. The new
+  point takes the curve's interpolated levels, so adding one never changes the
+  light output until you edit it.
+- **Delete** removes the selected point. A schedule keeps a minimum of two.
+- Editing a level writes that point only. This differs from the spectrum card's
+  sliders, which ramp the surrounding hour.
+
+`max_points` (default 12) caps the strip. The integration enforces the detected
+model's own limit when the schedule is uploaded, so leave this alone unless a
+fixture reports fewer.
 
 ## Using the cards
 
