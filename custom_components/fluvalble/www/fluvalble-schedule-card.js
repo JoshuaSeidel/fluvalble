@@ -65,6 +65,8 @@ class FluvalbleScheduleCard extends HTMLElement {
     const definitions = scheduleChannelDefinitions(this.store);
     const graph = buildGraph(points, definitions);
     const maxPoints = Number(this.config.max_points) || MAX_SCHEDULE_POINTS;
+    const locked = isEditLocked(this.config, this._hass);
+    const dis = locked ? " disabled" : "";
     const selectedIndex = findPointIndex(points, this.previewMinute);
     const selectedPoint = selectedIndex === -1 ? null : points[selectedIndex];
 
@@ -76,10 +78,13 @@ class FluvalbleScheduleCard extends HTMLElement {
               <div class="title">${escapeHtml(this.config.title)}</div>
               <div id="subtitle" class="subtitle">${time} preview · ${scheduleSourceLabel(this.store)}</div>
             </div>
-            <label class="toggle">
-              <input id="physical" type="checkbox" ${this.config.physical_preview ? "checked" : ""}>
-              Physical preview
-            </label>
+            <div class="header-right">
+              ${locked ? '<span class="lock-chip" title="Editing is locked">Locked</span>' : ""}
+              <label class="toggle">
+                <input id="physical" type="checkbox" ${this.config.physical_preview ? "checked" : ""}${dis}>
+                Physical preview
+              </label>
+            </div>
           </div>
 
           <svg class="graph" viewBox="0 0 720 220" preserveAspectRatio="none">
@@ -97,14 +102,14 @@ class FluvalbleScheduleCard extends HTMLElement {
           <div class="points">
             <div class="points-head">
               <span>${points.length} of ${maxPoints} time points set</span>
-              <button type="button" id="point-add" ${points.length >= maxPoints || selectedPoint ? "disabled" : ""}>Add point at ${time}</button>
+              <button type="button" id="point-add" ${points.length >= maxPoints || selectedPoint || locked ? "disabled" : ""}>Add point at ${time}</button>
             </div>
             <div class="points-nav">
               <button type="button" id="point-prev" class="chev" title="Previous time point">&lsaquo;</button>
               <div class="points-strip" id="points-strip">${buildPointCards(points, definitions, this.previewMinute)}</div>
               <button type="button" id="point-next" class="chev" title="Next time point">&rsaquo;</button>
             </div>
-            ${buildPointEditor(selectedPoint, selectedIndex, definitions, points.length > 2)}
+            ${buildPointEditor(selectedPoint, selectedIndex, definitions, points.length > 2, locked)}
           </div>
 
           <div class="actions">
@@ -117,17 +122,17 @@ class FluvalbleScheduleCard extends HTMLElement {
             </label>
             <label class="mode-control">
               Schedule mode
-              <select id="schedule-mode">
+              <select id="schedule-mode"${dis}>
                 <option value="manual" ${this.store.mode === "manual" ? "selected" : ""}>Manual</option>
                 <option value="native" ${this.store.mode === "native" ? "selected" : ""}>Fixture native</option>
               </select>
             </label>
-            <button id="apply">Apply Schedule</button>
-            <button id="load-fixture">Load from fixture</button>
-            <button id="flatten">Flatten Schedule</button>
-            <button id="preview-fixture">Preview fixture time</button>
-            <button id="play-fixture">Play fixture schedule</button>
-            <button id="play">Play editor preview</button>
+            <button id="apply"${dis}>Apply Schedule</button>
+            <button id="load-fixture"${dis}>Load from fixture</button>
+            <button id="flatten"${dis}>Flatten Schedule</button>
+            <button id="preview-fixture"${dis}>Preview fixture time</button>
+            <button id="play-fixture"${dis}>Play fixture schedule</button>
+            <button id="play"${dis}>Play editor preview</button>
             <button id="stop">Stop preview</button>
           </div>
         </div>
@@ -156,6 +161,8 @@ class FluvalbleScheduleCard extends HTMLElement {
         button[disabled] { cursor: not-allowed; opacity: .45; }
         .points { border-top: 1px solid var(--divider-color); margin-top: 16px; padding-top: 12px; }
         .points-head { align-items: center; color: var(--secondary-text-color); display: flex; font-size: 13px; gap: 12px; justify-content: space-between; margin-bottom: 10px; }
+        .header-right { align-items: center; display: flex; gap: 10px; }
+        .lock-chip { background: var(--error-color); border-radius: 999px; color: var(--text-primary-color); font-size: 11px; font-weight: 600; letter-spacing: .04em; padding: 3px 9px; text-transform: uppercase; white-space: nowrap; }
         .points-nav { align-items: center; display: grid; gap: 6px; grid-template-columns: auto 1fr auto; }
         .points-strip { display: flex; gap: 10px; overflow-x: auto; padding: 4px 2px 12px; scroll-snap-type: x proximity; scrollbar-width: thin; }
         .chev { background: var(--secondary-background-color); border: 1px solid var(--divider-color); border-radius: 50%; color: var(--primary-text-color); cursor: pointer; font-size: 20px; height: 34px; line-height: 1; padding: 0; width: 34px; }
@@ -195,7 +202,9 @@ class FluvalbleScheduleCard extends HTMLElement {
     root.getElementById("time").addEventListener("change", (event) => {
       this.previewMinute = Number(event.target.value);
       setSelectedMinute(this.config, this.previewMinute, this);
-      if (this.config.physical_preview) {
+      // Scrubbing must never write to the fixture while locked - that was reaching the
+      // light on every drag, and failing loudly whenever BLE was unavailable.
+      if (this.config.physical_preview && !isEditLocked(this.config, this._hass)) {
         const channels = interpolate(this.store.points, this.previewMinute);
         this.store.lastManualChannels = channels;
         this.applyChannels(channels);
@@ -263,6 +272,12 @@ class FluvalbleScheduleCard extends HTMLElement {
       });
     }
 
+    const guard = () => {
+      if (!isEditLocked(this.config, this._hass)) return false;
+      this.toast("Schedule editing is locked");
+      return true;
+    };
+
     const stepPoint = (delta) => {
       const index = neighborPointIndex(this.store.points, this.previewMinute, delta);
       if (index === -1) return;
@@ -286,6 +301,7 @@ class FluvalbleScheduleCard extends HTMLElement {
     const addButton = root.getElementById("point-add");
     if (addButton) {
       addButton.addEventListener("click", () => {
+        if (guard()) return;
         if (!addSchedulePoint(this.config, this.previewMinute, this, maxPoints)) {
           this.toast(`The fixture holds at most ${maxPoints} time points`);
           return;
@@ -299,6 +315,7 @@ class FluvalbleScheduleCard extends HTMLElement {
     const deleteButton = root.getElementById("pe-delete");
     if (deleteButton) {
       deleteButton.addEventListener("click", () => {
+        if (guard()) return;
         const minute = this.previewMinute;
         if (!deleteSchedulePoint(this.config, minute, this)) {
           this.toast("A schedule needs at least two time points");
@@ -313,6 +330,7 @@ class FluvalbleScheduleCard extends HTMLElement {
     const timeInput = root.getElementById("pe-time");
     if (timeInput) {
       timeInput.addEventListener("change", (event) => {
+        if (guard()) return;
         const target = parseTime(event.target.value);
         if (!moveSchedulePoint(this.config, this.previewMinute, target, this)) {
           this.toast("Another time point already uses that time");
@@ -331,6 +349,7 @@ class FluvalbleScheduleCard extends HTMLElement {
     root.querySelectorAll(".pe-slider, .pe-number").forEach((element) => {
       const channel = element.dataset.channel;
       element.addEventListener("input", (event) => {
+        if (isEditLocked(this.config, this._hass)) return;
         const value = clampPercent(event.target.value);
         const selector = event.target.classList.contains("pe-slider") ? ".pe-number" : ".pe-slider";
         const partner = root.querySelector(`${selector}[data-channel="${channel}"]`);
@@ -921,15 +940,15 @@ class FluvalbleEffectScheduleCard extends HTMLElement {
               <div class="title">${escapeHtml(this.config.title)}</div>
               <div class="subtitle">${escapeHtml(status)}</div>
             </div>
-            <button id="add" ${supported && this.store.effectWindows.length < 7 ? "" : "disabled"}>Add window</button>
+            <button id="add" ${supported && this.store.effectWindows.length < 7 && !isEditLocked(this.config, this._hass) ? "" : "disabled"}>Add window</button>
           </div>
           <div class="rows">
             ${rows || '<div class="empty">No timed-effect windows configured.</div>'}
           </div>
           <div class="actions">
-            <button id="apply" ${supported ? "" : "disabled"}>Apply to fixture</button>
+            <button id="apply" ${supported && !isEditLocked(this.config, this._hass) ? "" : "disabled"}>Apply to fixture</button>
             <button id="load">Load from fixture</button>
-            <button id="clear" ${supported ? "" : "disabled"}>Clear fixture schedule</button>
+            <button id="clear" ${supported && !isEditLocked(this.config, this._hass) ? "" : "disabled"}>Clear fixture schedule</button>
           </div>
           ${this.store.effectReadbackComplete === false && this.store.effectProtocol === "classic"
             ? '<div class="notice">Classic controllers report only one timed-effect slot in normal state responses. The saved Home Assistant copy remains the complete editable schedule.</div>'
@@ -1193,7 +1212,7 @@ class FluvalbleSpectrumCard extends HTMLElement {
             </div>
           </div>
 
-          <div class="spectrum">${buildChannelBars(channels, true, scheduleChannelDefinitions(this.store))}</div>
+          <div class="spectrum">${buildChannelBars(channels, !isEditLocked(this.config, this._hass), scheduleChannelDefinitions(this.store))}</div>
         </div>
       </ha-card>
       <style>
@@ -1848,7 +1867,7 @@ function buildPointCards(points, definitions, selectedMinute) {
   }).join("");
 }
 
-function buildPointEditor(point, index, definitions, canDelete) {
+function buildPointEditor(point, index, definitions, canDelete, locked) {
   if (!point) {
     return `<div class="point-hint">Scrub the slider to a time and press <b>Add point</b>, or tap a point above to edit it.</div>`;
   }
@@ -1856,16 +1875,16 @@ function buildPointEditor(point, index, definitions, canDelete) {
     <div class="pe-row">
       <i class="dot" style="background:${color}"></i>
       <label>${escapeHtml(label)}</label>
-      <input class="pe-slider" data-channel="${key}" type="range" min="0" max="100" step="1" value="${clampPercent(point[key])}">
-      <input class="pe-number" data-channel="${key}" type="number" min="0" max="100" step="1" value="${clampPercent(point[key])}">
+      <input class="pe-slider" data-channel="${key}" type="range" min="0" max="100" step="1" value="${clampPercent(point[key])}"${locked ? " disabled" : ""}>
+      <input class="pe-number" data-channel="${key}" type="number" min="0" max="100" step="1" value="${clampPercent(point[key])}"${locked ? " disabled" : ""}>
     </div>
   `).join("");
   return `
     <div class="point-editor">
       <div class="pe-head">
         <span class="pe-title">Point ${String(index + 1).padStart(2, "0")}</span>
-        <input id="pe-time" type="time" value="${formatMinute(point.minute)}">
-        <button type="button" id="pe-delete" class="danger" ${canDelete ? "" : "disabled"}>Delete</button>
+        <input id="pe-time" type="time" value="${formatMinute(point.minute)}"${locked ? " disabled" : ""}>
+        <button type="button" id="pe-delete" class="danger" ${canDelete && !locked ? "" : "disabled"}>Delete</button>
       </div>
       <div class="pe-rows">${rows}</div>
     </div>
@@ -1875,6 +1894,17 @@ function buildPointEditor(point, index, definitions, canDelete) {
 // Index of the point a chevron should land on. With a point selected this is the
 // neighbour, wrapping at the ends. With the scrubber between points it is the next
 // point in that direction, so the first press never jumps backwards past the cursor.
+// Edit lock. These cards render into their own shadow root, so a dashboard-level
+// `pointer-events: none` never reaches the controls inside them; the lock has to be
+// enforced by the card. Unresolvable state counts as locked so a slow-loading hass
+// cannot briefly expose a live fixture write.
+function isEditLocked(config, hass) {
+  const entityId = config && config.unlock_entity;
+  if (!entityId) return false;
+  const state = hass && hass.states ? hass.states[entityId] : null;
+  return !state || state.state !== "on";
+}
+
 function neighborPointIndex(points, minute, delta) {
   if (!points.length) return -1;
   const current = findPointIndex(points, minute);
